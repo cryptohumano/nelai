@@ -1,4 +1,4 @@
-name: Deploy to GitHub Pages
+name: Deploy PWA to GitHub Pages
 
 on:
   push:
@@ -23,6 +23,9 @@ concurrency:
 jobs:
   build:
     runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: andino-wallet-pwa
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -50,23 +53,20 @@ jobs:
         env:
           GITHUB_REPOSITORY: ${{ github.repository }}
           NODE_ENV: production
-      
+
       - name: Verify build output
         run: |
           echo "Verifying build output..."
           if [ -f dist/index.html ]; then
             echo "✅ dist/index.html exists"
             echo "Checking for base path in HTML:"
-            # Verificar que tenga algún base path (puede ser /aura-pwa/ o el nombre del repo)
             if grep -q 'href="/' dist/index.html || grep -q 'src="/' dist/index.html; then
               echo "✅ Base path found in HTML"
             else
               echo "⚠️ Base path NOT found in HTML"
-              echo "HTML content:"
               head -20 dist/index.html
               exit 1
             fi
-            echo "First 20 lines of dist/index.html:"
             head -20 dist/index.html
           else
             echo "❌ dist/index.html not found"
@@ -75,7 +75,6 @@ jobs:
 
       - name: Disable Jekyll
         run: |
-          echo "Creating .nojekyll file to disable Jekyll processing..."
           touch dist/.nojekyll
           echo "✅ .nojekyll file created"
 
@@ -85,7 +84,7 @@ jobs:
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3
         with:
-          path: './dist'
+          path: andino-wallet-pwa/dist
 
   deploy:
     environment:
@@ -97,4 +96,3 @@ jobs:
       - name: Deploy to GitHub Pages
         id: deployment
         uses: actions/deploy-pages@v4
-
