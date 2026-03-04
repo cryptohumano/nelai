@@ -3,8 +3,8 @@
  */
 
 import { useRef, useEffect, useState } from 'react'
-import ReactQuill from 'react-quill'
-import 'react-quill/dist/quill.snow.css'
+import ReactQuill from 'react-quill-new'
+import 'react-quill-new/dist/quill.snow.css'
 import { cn } from '@/lib/utils'
 import PhotoCapture from './PhotoCapture'
 import {
@@ -18,12 +18,18 @@ import { Button } from '@/components/ui/button'
 import { Camera, Image as ImageIcon } from 'lucide-react'
 import { toast } from 'sonner'
 
+export interface EditorApi {
+  insertAtCursor: (text: string) => void
+}
+
 export interface RichTextEditorProps {
   value: string
   onChange: (value: string) => void
   placeholder?: string
   className?: string
   readOnly?: boolean
+  /** Ref que se rellena con insertAtCursor cuando el editor está listo */
+  editorApiRef?: React.MutableRefObject<EditorApi | null>
 }
 
 export default function RichTextEditor({
@@ -32,6 +38,7 @@ export default function RichTextEditor({
   placeholder = 'Escribe el contenido del documento...',
   className,
   readOnly = false,
+  editorApiRef,
 }: RichTextEditorProps) {
   const quillRef = useRef<ReactQuill>(null)
   const [photoDialogOpen, setPhotoDialogOpen] = useState(false)
@@ -43,21 +50,58 @@ export default function RichTextEditor({
     setMounted(true)
   }, [])
 
+  useEffect(() => {
+    if (!mounted || !editorApiRef) return
+    const tryAttach = () => {
+      if (!quillRef.current) return false
+      const q = quillRef.current.getEditor()
+      editorApiRef.current = {
+        insertAtCursor: (text: string) => {
+          const editor = quillRef.current?.getEditor()
+          if (!editor) return
+          const range = editor.getSelection(true)
+          if (range) {
+            editor.insertText(range.index, text, 'user')
+            editor.setSelection(range.index + text.length)
+          } else {
+            editor.insertText(editor.getLength(), text, 'user')
+          }
+        },
+      }
+      return true
+    }
+    if (tryAttach()) return () => { editorApiRef.current = null }
+    const id = setTimeout(() => {
+      tryAttach()
+    }, 100)
+    return () => {
+      clearTimeout(id)
+      editorApiRef.current = null
+    }
+  }, [mounted, editorApiRef])
+
+  // Toolbar estilo Google Docs: una sola fila horizontal, estilo/encabezado primero
   const modules = readOnly
     ? { toolbar: false }
     : {
         toolbar: {
           container: [
-            [{ header: [1, 2, 3, false] }],
-            ['bold', 'italic', 'underline', 'strike'],
-            [{ list: 'ordered' }, { list: 'bullet' }],
-            [{ align: [] }],
-            ['link', 'image'],
-            ['clean'],
+            [
+              { header: [1, 2, 3, false] }, // Estilo: Normal, H1, H2, H3
+              'bold',
+              'italic',
+              'underline',
+              'strike',
+              { list: 'ordered' },
+              { list: 'bullet' },
+              { align: [] },
+              'link',
+              'image',
+              'clean',
+            ],
           ],
           handlers: {
-            image: function() {
-              // Abrir opciones: cámara o archivo
+            image: function () {
               setPhotoDialogOpen(true)
             },
           },
@@ -102,6 +146,7 @@ export default function RichTextEditor({
     }
   }
 
+  // Quill 2: 'bullet' es valor de 'list', no un formato. Solo 'list' cubre ordered y bullet.
   const formats = [
     'header',
     'bold',
@@ -109,7 +154,6 @@ export default function RichTextEditor({
     'underline',
     'strike',
     'list',
-    'bullet',
     'align',
     'link',
     'image',
@@ -126,59 +170,73 @@ export default function RichTextEditor({
   return (
     <>
       <style>{`
+        /* Estilo tipo Google Docs: toolbar compacta, área de edición amplia */
         .rich-text-editor {
           width: 100% !important;
           display: block !important;
           min-height: 300px !important;
+          font-family: inherit;
         }
         .rich-text-editor .ql-container {
-          min-height: 250px !important;
+          min-height: 280px !important;
           font-size: 14px;
+          line-height: 1.6;
           width: 100% !important;
           display: block !important;
-          border: 1px solid hsl(var(--border)) !important;
+          border: none !important;
         }
         .rich-text-editor .ql-editor {
-          min-height: 250px !important;
+          min-height: 280px !important;
           width: 100% !important;
-        }
-        .rich-text-editor .ql-toolbar {
-          border-top-left-radius: 0.5rem;
-          border-top-right-radius: 0.5rem;
-          border-bottom: 1px solid hsl(var(--border));
-          width: 100% !important;
-          display: flex !important;
-          background: hsl(var(--background)) !important;
-          border: 1px solid hsl(var(--border)) !important;
-          border-bottom: none !important;
-        }
-        .rich-text-editor .ql-container {
-          border-bottom-left-radius: 0.5rem;
-          border-bottom-right-radius: 0.5rem;
-          background: hsl(var(--background)) !important;
+          padding: 1rem 1.5rem !important;
+          font-family: inherit;
         }
         .rich-text-editor .ql-editor.ql-blank::before {
           color: hsl(var(--muted-foreground));
           font-style: normal;
         }
+        /* Toolbar horizontal compacta como Google Docs */
+        .rich-text-editor .ql-toolbar {
+          border: none !important;
+          border-bottom: 1px solid hsl(var(--border)) !important;
+          padding: 0.5rem 1rem !important;
+          background: hsl(var(--background)) !important;
+          display: flex !important;
+          flex-wrap: wrap !important;
+          gap: 0 !important;
+        }
+        .rich-text-editor .ql-toolbar .ql-formats {
+          margin-right: 0.5rem !important;
+        }
+        .rich-text-editor .ql-toolbar button {
+          padding: 0.35rem 0.5rem !important;
+        }
+        .rich-text-editor .ql-toolbar .ql-picker {
+          padding: 0.25rem 0.5rem !important;
+        }
+        .rich-text-editor .ql-container {
+          border-radius: 0 0 0.5rem 0.5rem;
+          background: hsl(var(--background)) !important;
+        }
         .rich-text-editor .ql-snow {
           width: 100% !important;
+          border-radius: 0.5rem;
+          border: 1px solid hsl(var(--border)) !important;
         }
         .rich-text-editor .ql-snow .ql-toolbar {
-          display: flex !important;
-          visibility: visible !important;
-          opacity: 1 !important;
+          border-radius: 0.5rem 0.5rem 0 0 !important;
         }
-        .rich-text-editor .ql-snow .ql-container {
-          display: block !important;
-          visibility: visible !important;
-          opacity: 1 !important;
-        }
+        .rich-text-editor .ql-snow .ql-toolbar,
+        .rich-text-editor .ql-snow .ql-container,
         .rich-text-editor .ql-snow .ql-editor {
           display: block !important;
           visibility: visible !important;
           opacity: 1 !important;
         }
+        /* Encabezados con mejor jerarquía visual */
+        .rich-text-editor .ql-editor h1 { font-size: 1.75rem; font-weight: 600; margin: 1rem 0 0.5rem; }
+        .rich-text-editor .ql-editor h2 { font-size: 1.35rem; font-weight: 600; margin: 0.75rem 0 0.5rem; }
+        .rich-text-editor .ql-editor h3 { font-size: 1.15rem; font-weight: 600; margin: 0.5rem 0 0.25rem; }
       `}</style>
       <div className={cn('rich-text-editor w-full', className)} style={{ width: '100%', minHeight: '350px' }}>
         <ReactQuill

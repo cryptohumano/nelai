@@ -9,6 +9,7 @@ import type { MountainLog } from '@/types/mountainLogs'
 import { calculatePDFHash } from '@/services/pdf/PDFHash'
 import { injectGPSMetadata } from '@/services/pdf/PDFMetadata'
 import { generateMapImageBase64 } from '@/components/mountainLogs/RouteMap'
+import { aggregateExifFromMountainLog } from '@/utils/exifAggregation'
 
 export interface MountainLogPDFOptions {
   log: MountainLog
@@ -727,12 +728,26 @@ export async function generateMountainLogPDF(
   if (log.relatedAccount) {
     subjectParts.push(`Substrate Account: ${log.relatedAccount}`)
   }
-  pdfDoc.setSubject(subjectParts.join(' | '))
+  // Subject: incluir EXIF/cámara, GPS y resumen para que aparezca en Propiedades del documento
+  const exifAgg = aggregateExifFromMountainLog(log)
+  let subjectStr = subjectParts.join(' | ')
+  if (exifAgg?.subjectText) {
+    subjectStr += ` | ${exifAgg.subjectText}`
+  }
+  // Resumen de contenido: fotos y milestones (visible en Propiedades del documento)
+  const totalImages = (log.milestones || []).reduce((n, m) => n + (m.images?.length || 0), 0) + (log.images?.length || 0)
+  if (totalImages > 0) {
+    subjectStr += ` | ${totalImages} foto(s)`
+  }
+  if (log.startLocation) {
+    subjectStr += ` | GPS inicio: ${log.startLocation.latitude.toFixed(4)}, ${log.startLocation.longitude.toFixed(4)}`
+  }
+  pdfDoc.setSubject(subjectStr)
   
   pdfDoc.setCreator('Andino Wallet')
   pdfDoc.setProducer('Andino Wallet PDF Generator')
   
-  // Agregar keywords incluyendo información de la cuenta Substrate
+  // Agregar keywords incluyendo información de la cuenta Substrate y EXIF/cámara
   const keywords = [
     'montañismo',
     'bitácora',
@@ -742,6 +757,12 @@ export async function generateMountainLogPDF(
   ]
   if (log.relatedAccount) {
     keywords.push(`SubstrateAccount:${log.relatedAccount}`)
+  }
+  if (exifAgg?.keywordsText?.length) {
+    keywords.push(...exifAgg.keywordsText)
+  }
+  if (log.startLocation?.altitude != null) {
+    keywords.push(`AltitudInicio:${Math.round(log.startLocation.altitude)}m`)
   }
   pdfDoc.setKeywords(keywords.filter(Boolean))
   

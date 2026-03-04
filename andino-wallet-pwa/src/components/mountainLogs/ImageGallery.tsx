@@ -572,6 +572,11 @@ export function ImageGallery({ images, onDelete, onImageUpdate, canDelete = true
         fieldsToPublish={['author', 'contentHash', 'createdAt']}
         hasGeolocation={!!selectedImage?.metadata?.gpsMetadata}
         onAcknowledged={acknowledge}
+        payloadSummary={
+          selectedImage
+            ? `imagen (hash, autor, fecha)${selectedImage.metadata?.gpsMetadata ? ', ubicación GPS' : ''}`
+            : undefined
+        }
       />
 
       {/* Dialog QR para compartir metadata */}

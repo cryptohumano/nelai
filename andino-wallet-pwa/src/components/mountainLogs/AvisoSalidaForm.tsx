@@ -14,6 +14,8 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { Plus, Trash2, AlertTriangle, Sparkles } from 'lucide-react'
+import { useGuideAgent } from '@/hooks/useGuideAgent'
+import { GuideModal } from '@/components/nelai/GuideModal'
 import type { MountainLog } from '@/types/mountainLogs'
 import { fillDummyData } from '@/data/dummyAvisoSalida'
 import { toast } from 'sonner'
@@ -32,6 +34,8 @@ export function AvisoSalidaForm({ log, onUpdate, onComplete }: AvisoSalidaFormPr
   const [currentSection, setCurrentSection] = useState(1)
   const [showDummySummary, setShowDummySummary] = useState(false)
   const { accounts } = useKeyringContext()
+  const { activeAccount } = useActiveAccount()
+  const { showModal: showGuideModal, setShowModal: setShowGuideModal, triggerGuide, acknowledge } = useGuideAgent('register-aviso-onchain')
   
   // Usar el avisoSalida del log actualizado
   const avisoSalida = log.avisoSalida || {
@@ -176,8 +180,20 @@ export function AvisoSalidaForm({ log, onUpdate, onComplete }: AvisoSalidaFormPr
     return true
   }
 
+  const payloadSummary = avisoSalida?.guia?.nombres
+    ? `guía ${avisoSalida.guia.nombres} ${avisoSalida.guia.apellidos}, destino ${avisoSalida.actividad?.lugarDestino || 'N/A'}, ${avisoSalida.participantes?.length || 0} participantes, ${avisoSalida.contactosEmergencia?.length || 0} contactos`
+    : undefined
+
   return (
     <div className="space-y-6 pb-20 bg-background min-h-screen">
+      <GuideModal
+        open={showGuideModal}
+        onOpenChange={setShowGuideModal}
+        actionType="register-aviso-onchain"
+        onAcknowledged={acknowledge}
+        hasPersonalData
+        payloadSummary={payloadSummary}
+      />
       {/* Resumen de datos dummy si se cargaron */}
       {showDummySummary && log.avisoSalida && (
         <DummyDataSummary avisoSalida={log.avisoSalida} />
@@ -1016,7 +1032,7 @@ export function AvisoSalidaForm({ log, onUpdate, onComplete }: AvisoSalidaFormPr
           ) : (
             <Button
               className="flex-1"
-              onClick={onComplete}
+              onClick={() => triggerGuide(onComplete)}
               disabled={!canProceed()}
             >
               Completar Aviso de Salida

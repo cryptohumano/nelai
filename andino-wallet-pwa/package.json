@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
+    "dev:all": "concurrently -n vite,c2pa -c blue,green \"yarn dev\" \"node server/c2pa-sign.js\"",
     "dev:https": "vite --host 0.0.0.0",
     "tunnel": "bash scripts/tunnel-localhost.sh",
     "setup:https": "bash scripts/setup-https.sh",
@@ -13,9 +14,12 @@
     "build": "tsc && vite build",
     "build:gh-pages": "tsc && vite build",
     "preview": "vite preview",
-    "lint": "eslint ."
+    "lint": "eslint .",
+    "c2pa-server": "node server/c2pa-sign.js"
   },
   "dependencies": {
+    "@contentauth/c2pa-node": "^0.5.1",
+    "@contentauth/c2pa-web": "^0.6.1",
     "@hookform/resolvers": "^5.2.2",
     "@polkadot/keyring": "^14.0.0",
     "@polkadot/react-identicon": "^3.16.4",
@@ -55,6 +59,8 @@
     "date-fns": "^4.1.0",
     "dedot": "^1.0.2",
     "embla-carousel-react": "^8.6.0",
+    "exif-js": "^2.3.0",
+    "express": "^5.2.1",
     "input-otp": "^1.4.2",
     "jspdf": "^3.0.4",
     "jspdf-autotable": "^5.0.2",
@@ -65,14 +71,16 @@
     "pdf-lib": "^1.17.1",
     "prop-types": "^15.8.1",
     "qrcode.react": "^4.2.0",
-    "quill": "^2.0.3",
+    "quill": "~2.0.3",
+    "quill-delta": "^5.1.0",
     "react": "^18.3.1",
     "react-day-picker": "^9.13.0",
     "react-dom": "^18.3.1",
     "react-hook-form": "^7.69.0",
     "react-is": "^19.2.3",
     "react-leaflet": "^5.0.0",
-    "react-quill": "^2.0.0",
+    "react-markdown": "^10.1.0",
+    "react-quill-new": "^3.8.3",
     "react-resizable-panels": "^4.0.14",
     "react-router-dom": "^7.11.0",
     "react-signature-canvas": "^1.1.0-alpha.2",
@@ -86,6 +94,7 @@
   },
   "devDependencies": {
     "@tailwindcss/vite": "^4.0.0",
+    "@types/express": "^5",
     "@types/node": "^22.10.2",
     "@types/prop-types": "^15",
     "@types/react": "^18.3.12",
@@ -97,6 +106,7 @@
     "@vitejs/plugin-react": "^4.3.1",
     "autoprefixer": "^10.4.20",
     "buffer": "^6.0.3",
+    "concurrently": "^9.2.1",
     "eslint": "^9.15.0",
     "eslint-plugin-react-hooks": "^5.0.0",
     "eslint-plugin-react-refresh": "^0.4.14",
@@ -106,5 +116,8 @@
     "vite": "^7.0.0",
     "vite-plugin-pwa": "^0.21.1"
   },
-  "packageManager": "yarn@4.6.0+sha224.acd0786f07ffc6c933940eb65fc1d627131ddf5455bddcc295dc90fd"
+  "packageManager": "yarn@4.6.0+sha224.acd0786f07ffc6c933940eb65fc1d627131ddf5455bddcc295dc90fd",
+  "resolutions": {
+    "@dedot/api@npm:1.0.2": "patch:@dedot/api@npm%3A1.0.2#~/.yarn/patches/@dedot-api-npm-1.0.2-b707bedde2.patch"
+  }
 }

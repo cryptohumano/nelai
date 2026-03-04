@@ -263,6 +263,8 @@ export default defineConfig({
   resolve: {
     alias: {
       '@': path.resolve(__dirname, './src'),
+      // Evitar ENOENT: react-quill no existe, usamos react-quill-new
+      'react-quill': path.resolve(__dirname, 'node_modules/react-quill-new'),
     },
   },
   define: {
@@ -276,7 +278,7 @@ export default defineConfig({
         global: 'globalThis',
       },
     },
-    include: ['buffer'],
+    include: ['buffer', 'react-quill-new'],
   },
   build: {
     commonjsOptions: {

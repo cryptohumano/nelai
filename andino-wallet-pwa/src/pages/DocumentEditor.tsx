@@ -2,9 +2,8 @@
  * Página para editar documentos antes de generar PDF
  */
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -16,12 +15,13 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
-import RichTextEditor from '@/components/documents/RichTextEditor'
+import RichTextEditor, { type EditorApi } from '@/components/documents/RichTextEditor'
+import { DocumentEditorAgent } from '@/components/documents/DocumentEditorAgent'
 import { useKeyringContext } from '@/contexts/KeyringContext'
-import { createDocument } from '@/services/documents/DocumentService'
+import { createDocument, updateDocumentContent } from '@/services/documents/DocumentService'
 import { getDocument } from '@/utils/documentStorage'
 import { toast } from 'sonner'
-import { ArrowLeft, Save, FileText } from 'lucide-react'
+import { ArrowLeft, Save, Bot, Info, Menu, PanelTopClose, PanelTop } from 'lucide-react'
 import type { Document, DocumentType } from '@/types/documents'
 import { encryptDocument } from '@/services/documents/DocumentEncryptor'
 import Identicon from '@polkadot/react-identicon'
@@ -32,11 +32,13 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog'
+import { useDocumentEditorLayout } from '@/contexts/DocumentEditorLayoutContext'
 
 export default function DocumentEditor() {
   const { documentId } = useParams<{ documentId: string }>()
   const navigate = useNavigate()
   const { accounts } = useKeyringContext()
+  const layoutCtx = useDocumentEditorLayout()
 
   const [isEditing, setIsEditing] = useState(!!documentId)
   const [loading, setLoading] = useState(!!documentId)
@@ -51,6 +53,9 @@ export default function DocumentEditor() {
   const [encrypt, setEncrypt] = useState(false)
   const [encryptPassword, setEncryptPassword] = useState('')
   const [encryptDialogOpen, setEncryptDialogOpen] = useState(false)
+  const [metadataModalOpen, setMetadataModalOpen] = useState(false)
+  const [agentOpen, setAgentOpen] = useState(false)
+  const editorApiRef = useRef<EditorApi | null>(null)
 
   useEffect(() => {
     if (documentId) {
@@ -80,7 +85,7 @@ export default function DocumentEditor() {
       setType(doc.type)
       setDescription(doc.metadata.description || '')
       setSelectedAccount(doc.relatedAccount || accounts[0]?.address || '')
-      setContent('') // El contenido del PDF no se puede editar directamente
+      setContent((doc.metadata.contentHtml as string) || '')
       setEncrypt(doc.encrypted || false)
     } catch (error) {
       console.error('[Document Editor] Error al cargar documento:', error)
@@ -109,39 +114,44 @@ export default function DocumentEditor() {
     try {
       setSaving(true)
 
-      // Usar el HTML de Quill directamente - el generador de PDF lo procesará
-      // Crear documento
-      const document = await createDocument({
-        type,
-        metadata: {
-          title,
-          description,
-          author: selectedAccount,
-          createdAt: new Date().toISOString(),
-        },
-        pdfContent: {
-          title,
-          subtitle: description,
-          sections: [
-            {
-              title: 'Contenido',
-              content: content || '<p>Sin contenido</p>',
-              isTable: false,
-            },
-          ],
-        },
-        relatedAccount: selectedAccount,
-      })
+      const metadata = {
+        title,
+        description,
+        author: selectedAccount,
+        createdAt: new Date().toISOString(),
+      }
+      const pdfContent = content || '<p>Sin contenido</p>'
+
+      let finalDocument
+      if (documentId) {
+        finalDocument = await updateDocumentContent(documentId, {
+          content: pdfContent,
+          metadata,
+          relatedAccount: selectedAccount,
+        })
+      } else {
+        finalDocument = await createDocument({
+          type,
+          metadata,
+          pdfContent: {
+            title,
+            subtitle: description,
+            sections: [
+              { title: 'Contenido', content: pdfContent, isTable: false },
+            ],
+          },
+          relatedAccount: selectedAccount,
+        })
+      }
 
       // Encriptar si se solicita
-      let finalDocument = document
       if (encrypt) {
         if (!encryptPassword.trim()) {
           setEncryptDialogOpen(true)
           return
         }
 
-        finalDocument = await encryptDocument(document, encryptPassword)
+        finalDocument = await encryptDocument(finalDocument, encryptPassword)
         toast.success('Documento encriptado y guardado')
       } else {
         toast.success('Documento guardado exitosamente')
@@ -179,98 +189,201 @@ export default function DocumentEditor() {
     )
   }
 
+  const headerCollapsed = layoutCtx?.headerCollapsed ?? false
+
   return (
-    <div className="container mx-auto p-4 pb-6 sm:pb-8 space-y-6 max-w-4xl">
-      {/* Header */}
-      <div className="flex items-center gap-4">
+    <>
+    <div className="fixed inset-0 flex flex-col bg-background z-10">
+      {/* Barra de herramientas */}
+      <div
+        className={`flex items-center gap-1 sm:gap-2 border-b shrink-0 transition-all ${
+          headerCollapsed ? 'px-2 py-1' : 'px-3 sm:px-4 py-2'
+        }`}
+      >
+        <Button
+          variant="ghost"
+          size="icon"
+          onClick={() => layoutCtx?.toggleSidebar()}
+          className="flex-shrink-0 h-8 w-8"
+          title="Mostrar menú"
+        >
+          <Menu className="h-4 w-4" />
+        </Button>
         <Button
           variant="ghost"
           size="icon"
           onClick={() => navigate('/documents')}
+          className="flex-shrink-0 h-8 w-8"
+          title="Volver"
         >
           <ArrowLeft className="h-4 w-4" />
         </Button>
-        <div>
-          <h1 className="text-2xl font-bold">
-            {isEditing ? 'Editar Documento' : 'Nuevo Documento'}
-          </h1>
-          <p className="text-muted-foreground">
-            {isEditing
-              ? 'Edita los metadatos del documento'
-              : 'Crea un nuevo documento y genera el PDF'}
-          </p>
-        </div>
+        {!headerCollapsed && (
+          <>
+            <div className="flex-1 min-w-0">
+              <h1 className="text-sm sm:text-base font-semibold truncate">
+                {title || 'Sin título'}
+              </h1>
+              <p className="text-xs text-muted-foreground truncate">
+                {isEditing ? 'Editar' : 'Nuevo documento'}
+              </p>
+            </div>
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={() => setAgentOpen(true)}
+              className="flex-shrink-0 h-8 w-8"
+              title="Asistente IA"
+            >
+              <Bot className="h-4 w-4" />
+            </Button>
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={() => setMetadataModalOpen(true)}
+              className="flex-shrink-0 h-8 w-8"
+              title="Información"
+            >
+              <Info className="h-4 w-4" />
+            </Button>
+          </>
+        )}
+        <Button
+          variant="ghost"
+          size="icon"
+          onClick={() => layoutCtx?.toggleHeader()}
+          className="flex-shrink-0 h-8 w-8"
+          title={headerCollapsed ? 'Mostrar barra' : 'Ocultar barra'}
+        >
+          {headerCollapsed ? (
+            <PanelTop className="h-4 w-4" />
+          ) : (
+            <PanelTopClose className="h-4 w-4" />
+          )}
+        </Button>
+        {!headerCollapsed && (
+          <div className="flex gap-2 ml-2">
+            <Button variant="outline" size="sm" onClick={() => navigate('/documents')}>
+              Cancelar
+            </Button>
+            <Button size="sm" onClick={handleSave} disabled={saving}>
+              <Save className="h-4 w-4 mr-1" />
+              {saving ? '...' : 'Guardar'}
+            </Button>
+          </div>
+        )}
       </div>
 
-      {/* Formulario */}
-      <div className="space-y-6">
-        {/* Metadata */}
-        <Card>
-          <CardHeader>
-            <CardTitle>Información del Documento</CardTitle>
-            <CardDescription>
-              Configura los metadatos del documento
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <div className="grid gap-4 md:grid-cols-2">
-              <div className="space-y-2">
-                <Label htmlFor="title">Título *</Label>
-                <Input
-                  id="title"
-                  value={title}
-                  onChange={(e) => setTitle(e.target.value)}
-                  placeholder="Título del documento"
-                />
-              </div>
+      {/* Editor */}
+      <div className="flex-1 overflow-hidden flex flex-col min-h-0">
+        <div className="flex-1 overflow-y-auto p-2 sm:p-3">
+          <div className="w-full min-h-[calc(100vh-120px)]">
+            <RichTextEditor
+              value={content}
+              onChange={setContent}
+              placeholder="Escribe el contenido del documento aquí..."
+              editorApiRef={editorApiRef}
+            />
+          </div>
+        </div>
+        {headerCollapsed && (
+          <div className="flex items-center justify-end gap-2 px-2 py-1 border-t shrink-0">
+            <Button variant="outline" size="sm" onClick={() => navigate('/documents')}>
+              Cancelar
+            </Button>
+            <Button size="sm" onClick={handleSave} disabled={saving}>
+              <Save className="h-4 w-4 mr-1" />
+              {saving ? '...' : 'Guardar'}
+            </Button>
+          </div>
+        )}
+      </div>
 
-              <div className="space-y-2">
-                <Label htmlFor="type">Tipo de Documento</Label>
-                <Select value={type} onValueChange={(v) => setType(v as DocumentType)}>
-                  <SelectTrigger id="type">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="generic">Genérico</SelectItem>
-                    <SelectItem value="contract">Contrato</SelectItem>
-                    <SelectItem value="flight_log">Registro de Vuelo</SelectItem>
-                    <SelectItem value="medical_record">Registro Médico</SelectItem>
-                    <SelectItem value="attestation">Atestación</SelectItem>
-                    <SelectItem value="other">Otro</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-            </div>
+      <DocumentEditorAgent
+        open={agentOpen}
+        onOpenChange={setAgentOpen}
+        documentContext={{
+          title,
+          type,
+          description,
+          contentPlain: content ? (() => {
+            const div = document.createElement('div')
+            div.innerHTML = content
+            return (div.textContent || div.innerText || '').trim()
+          })() : '',
+        }}
+        editorApiRef={editorApiRef}
+      />
+    </div>
 
+      {/* Modal de metadata */}
+      <Dialog open={metadataModalOpen} onOpenChange={setMetadataModalOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Información del Documento</DialogTitle>
+            <DialogDescription>
+              Configura título, tipo, descripción y autor
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4">
             <div className="space-y-2">
-              <Label htmlFor="description">Descripción</Label>
+              <Label htmlFor="modal-title">Título *</Label>
+              <Input
+                id="modal-title"
+                value={title}
+                onChange={(e) => setTitle(e.target.value)}
+                placeholder="Título del documento"
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="modal-type">Tipo de Documento</Label>
+              <Select value={type} onValueChange={(v) => setType(v as DocumentType)}>
+                <SelectTrigger id="modal-type">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="generic">Genérico</SelectItem>
+                  <SelectItem value="contract">Contrato</SelectItem>
+                  <SelectItem value="flight_log">Registro de Vuelo</SelectItem>
+                  <SelectItem value="medical_record">Registro Médico</SelectItem>
+                  <SelectItem value="attestation">Atestación</SelectItem>
+                  <SelectItem value="other">Otro</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="modal-description">Descripción</Label>
               <Textarea
-                id="description"
+                id="modal-description"
                 value={description}
                 onChange={(e) => setDescription(e.target.value)}
                 placeholder="Descripción del documento"
                 rows={3}
               />
             </div>
-
+            <div className="flex items-center space-x-2">
+              <input
+                type="checkbox"
+                id="modal-encrypt"
+                checked={encrypt}
+                onChange={(e) => setEncrypt(e.target.checked)}
+                className="rounded border-gray-300"
+              />
+              <Label htmlFor="modal-encrypt" className="cursor-pointer text-sm">
+                Encriptar documento con contraseña
+              </Label>
+            </div>
             <div className="space-y-2">
-              <Label htmlFor="account">Autor *</Label>
-              <Select
-                value={selectedAccount}
-                onValueChange={setSelectedAccount}
-              >
-                <SelectTrigger id="account">
+              <Label htmlFor="modal-account">Autor *</Label>
+              <Select value={selectedAccount} onValueChange={setSelectedAccount}>
+                <SelectTrigger id="modal-account">
                   <SelectValue placeholder="Selecciona una cuenta">
                     {selectedAccount && (
                       <div className="flex items-center gap-2">
-                        <Identicon
-                          value={selectedAccount}
-                          size={16}
-                          theme="polkadot"
-                        />
+                        <Identicon value={selectedAccount} size={16} theme="polkadot" />
                         <span>
-                          {accounts.find(a => a.address === selectedAccount)?.meta?.name || 
-                           `${selectedAccount.slice(0, 8)}...${selectedAccount.slice(-6)}`}
+                          {accounts.find(a => a.address === selectedAccount)?.meta?.name ||
+                            `${selectedAccount.slice(0, 8)}...${selectedAccount.slice(-6)}`}
                         </span>
                       </div>
                     )}
@@ -280,15 +393,9 @@ export default function DocumentEditor() {
                   {accounts.map((account) => (
                     <SelectItem key={account.address} value={account.address}>
                       <div className="flex items-center gap-2">
-                        <Identicon
-                          value={account.address}
-                          size={16}
-                          theme="polkadot"
-                        />
+                        <Identicon value={account.address} size={16} theme="polkadot" />
                         <div className="flex flex-col">
-                          <span className="font-medium">
-                            {account.meta?.name || 'Sin nombre'}
-                          </span>
+                          <span className="font-medium">{account.meta?.name || 'Sin nombre'}</span>
                           <span className="text-xs text-muted-foreground">
                             {account.address.slice(0, 8)}...{account.address.slice(-6)}
                           </span>
@@ -299,72 +406,9 @@ export default function DocumentEditor() {
                 </SelectContent>
               </Select>
             </div>
-          </CardContent>
-        </Card>
-
-        {/* Contenido */}
-        <Card className="w-full">
-          <CardHeader>
-            <CardTitle>Contenido</CardTitle>
-            <CardDescription>
-              Escribe el contenido del documento
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="w-full p-4 sm:p-6">
-            <div className="space-y-2 w-full">
-              <Label>Contenido del Documento *</Label>
-              <div className="w-full" style={{ minHeight: '350px' }}>
-                <RichTextEditor
-                  value={content}
-                  onChange={setContent}
-                  placeholder="Escribe el contenido del documento aquí..."
-                />
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-      </div>
-
-      {/* Opciones de Seguridad */}
-      <Card>
-        <CardHeader>
-          <CardTitle>Opciones de Seguridad</CardTitle>
-          <CardDescription>
-            Configura la seguridad del documento
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          <div className="flex items-center space-x-2">
-            <input
-              type="checkbox"
-              id="encrypt"
-              checked={encrypt}
-              onChange={(e) => setEncrypt(e.target.checked)}
-              className="rounded border-gray-300"
-            />
-            <Label htmlFor="encrypt" className="cursor-pointer">
-              Encriptar documento con contraseña
-            </Label>
           </div>
-        </CardContent>
-      </Card>
-
-      {/* Acciones */}
-      <div className="flex gap-4 justify-end">
-        <Button
-          variant="outline"
-          onClick={() => navigate('/documents')}
-        >
-          Cancelar
-        </Button>
-        <Button
-          onClick={handleSave}
-          disabled={saving}
-        >
-          <Save className="mr-2 h-4 w-4" />
-          {saving ? 'Guardando...' : 'Guardar Documento'}
-        </Button>
-      </div>
+        </DialogContent>
+      </Dialog>
 
       {/* Dialog para contraseña de encriptación */}
       <Dialog open={encryptDialogOpen} onOpenChange={setEncryptDialogOpen}>
@@ -403,7 +447,7 @@ export default function DocumentEditor() {
           </div>
         </DialogContent>
       </Dialog>
-    </div>
+    </>
   )
 }
 

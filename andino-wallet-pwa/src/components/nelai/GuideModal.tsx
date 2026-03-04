@@ -1,3 +1,4 @@
+import { useEffect, useRef, useState } from 'react'
 import {
   Dialog,
   DialogContent,
@@ -6,9 +7,10 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog'
 import { Button } from '@/components/ui/button'
-import { getGuideContent } from '@/services/nelai/guideAgent'
+import { getGuideContentWithLLM, type GuideResult } from '@/services/nelai/guideAgent'
 import type { GuideActionType } from '@/config/guideAgent'
-import { Info } from 'lucide-react'
+import { Info, Loader2 } from 'lucide-react'
+import { MarkdownContent } from '@/components/ui/markdown-content'
 
 interface GuideModalProps {
   open: boolean
@@ -18,6 +20,8 @@ interface GuideModalProps {
   onAcknowledged: () => void
   hasGeolocation?: boolean
   hasPersonalData?: boolean
+  /** Resumen de qué datos se subirán (ej: "tipo: médico, severidad: alta") */
+  payloadSummary?: string
 }
 
 export function GuideModal({
@@ -28,17 +32,44 @@ export function GuideModal({
   onAcknowledged,
   hasGeolocation,
   hasPersonalData,
+  payloadSummary,
 }: GuideModalProps) {
-  const result = getGuideContent({
-    actionType,
-    fieldsToPublish,
-    hasGeolocation,
-    hasPersonalData,
-  })
+  const [result, setResult] = useState<GuideResult | null>(null)
+  const [loading, setLoading] = useState(true)
+  const fetchedForOpenRef = useRef(false)
+
+  useEffect(() => {
+    if (!open) {
+      fetchedForOpenRef.current = false
+      return
+    }
+    // Solo una llamada por apertura (evita 429 por re-renders)
+    if (fetchedForOpenRef.current) return
+    fetchedForOpenRef.current = true
+
+    setLoading(true)
+    setResult(null)
+    getGuideContentWithLLM({
+      actionType,
+      fieldsToPublish,
+      hasGeolocation,
+      hasPersonalData,
+      payloadSummary,
+    })
+      .then(setResult)
+      .catch(() => setResult(null))
+      .finally(() => setLoading(false))
+  }, [open])
 
   const handleAcknowledged = () => {
     onAcknowledged()
     onOpenChange(false)
+  }
+
+  const display = result ?? {
+    title: 'Antes de continuar',
+    content: 'Cargando...',
+    sections: undefined,
   }
 
   return (
@@ -47,34 +78,34 @@ export function GuideModal({
         <DialogHeader>
           <div className="flex items-center gap-2">
             <div className="rounded-full bg-primary/10 p-2">
-              <Info className="h-5 w-5 text-primary" />
+              {loading ? (
+                <Loader2 className="h-5 w-5 text-primary animate-spin" />
+              ) : (
+                <Info className="h-5 w-5 text-primary" />
+              )}
             </div>
-            <DialogTitle>{result.title}</DialogTitle>
+            <DialogTitle>{display.title}</DialogTitle>
           </div>
           <DialogDescription className="sr-only">
             Explicación sobre qué datos serán públicos y privados
           </DialogDescription>
         </DialogHeader>
         <div className="space-y-4 pt-2">
-          {result.sections ? (
+          {loading ? (
+            <p className="text-sm text-muted-foreground">Preparando guía...</p>
+          ) : display.sections ? (
             <div className="space-y-4">
-              {result.sections.map((section, i) => (
+              {display.sections.map((section, i) => (
                 <div key={i}>
                   <h4 className="font-semibold text-sm mb-1">{section.heading}</h4>
-                  <p className="text-sm text-muted-foreground leading-relaxed">
-                    {section.body}
-                  </p>
+                  <MarkdownContent content={section.body} size="sm" className="text-muted-foreground" />
                 </div>
               ))}
             </div>
           ) : (
-            <div className="prose prose-sm dark:prose-invert max-w-none">
-              <p className="text-sm text-muted-foreground whitespace-pre-line leading-relaxed">
-                {result.content.replace(/\*\*(.*?)\*\*/g, '$1')}
-              </p>
-            </div>
+            <MarkdownContent content={display.content} size="sm" className="text-muted-foreground" />
           )}
-          <Button onClick={handleAcknowledged} className="w-full mt-4">
+          <Button onClick={handleAcknowledged} className="w-full mt-4" disabled={loading}>
             Entendido
           </Button>
         </div>

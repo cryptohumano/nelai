@@ -19,6 +19,7 @@ import {
 import { ShieldCheck, ShieldAlert, ShieldX, Upload, FileJson, QrCode, Camera, X, Link2 } from 'lucide-react'
 import { verifyEvidence } from '@/services/nelai/evidenceVerification'
 import { getAssetFromDKG, summarizeDkgAssertions, getDkgConfig } from '@/services/nelai/dkgPublish'
+import { readC2paManifest, type C2paManifestInfo } from '@/services/c2pa/c2paReader'
 import jsQR from 'jsqr'
 import { toast } from 'sonner'
 
@@ -33,6 +34,7 @@ export default function VerifyProcedence() {
   const [jsonInput, setJsonInput] = useState('')
   const [ualInput, setUalInput] = useState('')
   const [status, setStatus] = useState<VerificationStatus>('idle')
+  const [c2paInfo, setC2paInfo] = useState<C2paManifestInfo | null>(null)
 
   const hasLoadedFromState = useRef(false)
   useEffect(() => {
@@ -149,12 +151,22 @@ export default function VerifyProcedence() {
 
     setStatus('verifying')
     setResult(null)
+    setC2paInfo(null)
 
     try {
       const buffer = await file.arrayBuffer()
       const res = await verifyEvidence(buffer, signedMetadata)
       setResult(res)
       setStatus(res.valid ? 'valid' : 'invalid')
+
+      // Intentar leer manifiesto C2PA si el archivo lo tiene
+      try {
+        const blob = new Blob([buffer], { type: file.type })
+        const manifest = await readC2paManifest(blob)
+        if (manifest?.hasManifest) setC2paInfo(manifest)
+      } catch {
+        // Ignorar errores de lectura C2PA
+      }
     } catch (err) {
       console.error('[VerifyProcedence] Error:', err)
       setStatus('error')
@@ -564,6 +576,23 @@ export default function VerifyProcedence() {
                 Firma: {result.signatureValid ? 'válida' : 'no válida'}
               </span>
             </div>
+            {c2paInfo?.hasManifest && (
+              <div className="pt-3 mt-3 border-t space-y-2">
+                <p className="text-xs font-medium text-muted-foreground">Content Credentials (C2PA)</p>
+                <div className="text-xs space-y-1">
+                  {c2paInfo.title && <p><span className="text-muted-foreground">Manifiesto:</span> {c2paInfo.title}</p>}
+                  {c2paInfo.polkadotAssertion?.address && (
+                    <p><span className="text-muted-foreground">Autor (Polkadot):</span> <span className="font-mono break-all">{c2paInfo.polkadotAssertion.address}</span></p>
+                  )}
+                  {c2paInfo.polkadotAssertion?.createdAt && (
+                    <p><span className="text-muted-foreground">Fecha:</span> {c2paInfo.polkadotAssertion.createdAt}</p>
+                  )}
+                  {c2paInfo.validationStatus && (
+                    <p className="text-muted-foreground">Estado: {c2paInfo.validationStatus}</p>
+                  )}
+                </div>
+              </div>
+            )}
           </CardContent>
         </Card>
       )}

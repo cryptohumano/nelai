@@ -160,6 +160,13 @@ export interface Document {
   // Batch Operations
   batchId?: string                      // ID del batch (si es parte de una operación en batch)
   batchOperation?: BatchOperation
+
+  /** Metadata firmada compatible con VerifyProcedence (para QR de verificación) */
+  signedMetadata?: {
+    metadata: Record<string, unknown>
+    signature: string
+    signer: string
+  }
   
   // Timestamps
   createdAt: number                     // Timestamp de creación

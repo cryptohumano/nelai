@@ -7,8 +7,9 @@ Documento de diseño para el **Agente Guía** de Nelai: explica al usuario qué 
 ## 1. Objetivo
 
 Antes de que el usuario confirme:
-- **"Registrar on-chain"** (emergencias, avisos de salida, etc.)
+- **"Registrar on-chain"** (avisos de salida, etc.) — **no emergencias** (prioridad: velocidad)
 - **"Publicar en DKG"** (evidencias firmadas)
+- **Firmar documentos** / **Verificar procedencia**
 
 …mostrar un modal o panel con texto explicativo que responda:
 - ¿Qué datos serán **públicos** y permanentes?
@@ -32,7 +33,7 @@ Antes de que el usuario confirme:
 │   └─────────────────┘     │  • actionType       │     │  • Plantillas   │   │
 │                           │  • fieldsToPublish  │     │  • Entendido    │   │
 │   ImageGallery            │  • getGuideContent  │     │  • Opcional LLM  │   │
-│   EmergencyButton         └──────────────────────┘     └─────────────────┘   │
+│   (emergencias: sin guía)  └──────────────────────┘     └─────────────────┘   │
 │   DocumentDetail                 │                              │             │
 │   (futuro)                       │                              │             │
 │                                  ▼                              ▼             │
@@ -354,6 +355,22 @@ Usuario          ImageGallery       useGuideAgent      GuideModal       guideAge
    │                   │◀──────────────────│                 │                  │
    │                   │  [Continuar flujo: diálogo pwd → DKG]│                  │
 ```
+
+---
+
+## 8. Prioridades del asistente LLM
+
+**Emergencias:** Sin guía ni LLM. La velocidad es prioritaria; el usuario debe poder enviar la alerta de inmediato.
+
+**Donde sí vale la pena el asistente LLM:**
+- **Documentos:** Crear, editar, firmar — más espacio para creatividad y explicaciones.
+- **Firmas criptográficas:** Explicar qué se firma, verificabilidad, uso de la identidad Polkadot.
+- **Verificar procedencia:** Ayudar a interpretar reportes, UAL, autenticidad.
+- **Transacciones:** Asistir con envíos, balances, explicar fees.
+
+**Bitácoras:** Caso puntual; menos creatividad que documentos o transacciones. El LLM puede ayudar en publicar en DKG (ImageGallery) pero no en emergencias.
+
+**Principio:** El asistente debe enfatizar la **función actual** en la que está el usuario (pantalla, acción) y ofrecer contexto relevante.
 
 ---
 

@@ -29,6 +29,7 @@ import { KeyringProvider } from './contexts/KeyringContext'
 import { NetworkProvider } from './contexts/NetworkContext'
 import { ActiveAccountProvider } from './contexts/ActiveAccountContext'
 import { ThemeProvider } from './contexts/ThemeContext'
+import { DocumentEditorLayoutProvider } from './contexts/DocumentEditorLayoutContext'
 import { Toaster } from '@/components/ui/sonner'
 
 createRoot(document.getElementById('root')!).render(
@@ -37,8 +38,10 @@ createRoot(document.getElementById('root')!).render(
       <KeyringProvider>
         <ActiveAccountProvider>
           <NetworkProvider>
-            <RouterProvider router={router} />
-            <Toaster />
+            <DocumentEditorLayoutProvider>
+              <RouterProvider router={router} />
+              <Toaster />
+            </DocumentEditorLayoutProvider>
           </NetworkProvider>
         </ActiveAccountProvider>
       </KeyringProvider>

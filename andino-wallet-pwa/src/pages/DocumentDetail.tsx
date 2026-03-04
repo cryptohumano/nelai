@@ -4,12 +4,15 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Separator } from '@/components/ui/separator'
-import { getDocument, type Document } from '@/utils/documentStorage'
+import { getDocument } from '@/utils/documentStorage'
+import type { Document } from '@/types/documents'
 import { downloadPDF, base64ToBlobURL } from '@/utils/pdfUtils'
-import { ArrowLeft, Download, Eye, FileText, Calendar, User, Hash, PenTool, Lock, Trash2, ShieldCheck, CheckCircle2, XCircle, AlertTriangle } from 'lucide-react'
+import { ArrowLeft, Download, Eye, FileText, Calendar, User, Hash, PenTool, Lock, Trash2, ShieldCheck, CheckCircle2, XCircle, AlertTriangle, Pencil, QrCode } from 'lucide-react'
 import { deleteDocument } from '@/utils/documentStorage'
 import { toast } from 'sonner'
 import SignatureSelector from '@/components/signatures/SignatureSelector'
+import { useGuideAgent } from '@/hooks/useGuideAgent'
+import { GuideModal } from '@/components/nelai/GuideModal'
 import { decryptDocument } from '@/services/documents/DocumentEncryptor'
 import { verifyDocument, verifySignature, type VerificationResult } from '@/services/signatures/SignatureVerifier'
 import {
@@ -21,6 +24,7 @@ import {
 } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import { QRCodeSVG } from 'qrcode.react'
 
 export default function DocumentDetail() {
   const { documentId } = useParams<{ documentId: string }>()
@@ -38,6 +42,8 @@ export default function DocumentDetail() {
   const [verificationResult, setVerificationResult] = useState<VerificationResult | null>(null)
   const [isVerifying, setIsVerifying] = useState(false)
   const [verifyDialogOpen, setVerifyDialogOpen] = useState(false)
+  const [qrDialogOpen, setQrDialogOpen] = useState(false)
+  const { showModal: showGuideModal, setShowModal: setShowGuideModal, triggerGuide, acknowledge } = useGuideAgent('sign-document')
 
   useEffect(() => {
     if (documentId) {
@@ -349,11 +355,31 @@ export default function DocumentDetail() {
           {!document.encrypted && (
             <Button 
               variant="outline"
-              onClick={() => setSignDialogOpen(true)}
+              onClick={() => triggerGuide(() => setSignDialogOpen(true))}
               className="flex-1 sm:flex-initial text-sm"
             >
               <PenTool className="mr-2 h-4 w-4" />
               Firmar
+            </Button>
+          )}
+          {!document.encrypted && (
+            <Button
+              variant="outline"
+              onClick={() => navigate(`/documents/${document.documentId}/edit`)}
+              className="flex-1 sm:flex-initial text-sm"
+            >
+              <Pencil className="mr-2 h-4 w-4" />
+              Editar
+            </Button>
+          )}
+          {document.signedMetadata && (
+            <Button
+              variant="outline"
+              onClick={() => setQrDialogOpen(true)}
+              className="flex-1 sm:flex-initial text-sm"
+            >
+              <QrCode className="mr-2 h-4 w-4" />
+              QR
             </Button>
           )}
           <Button onClick={handleDownload} className="flex-1 sm:flex-initial text-sm">
@@ -804,6 +830,15 @@ export default function DocumentDetail() {
         </Dialog>
       )}
 
+      {/* Modal Agente Guía — antes de firmar */}
+      <GuideModal
+        open={showGuideModal}
+        onOpenChange={setShowGuideModal}
+        actionType="sign-document"
+        onAcknowledged={acknowledge}
+        payloadSummary={document ? `documento "${document.metadata.title || 'sin título'}", hash, autor, fecha` : undefined}
+      />
+
       {/* Dialog para firmar */}
       {document && !document.encrypted && (
         <Dialog open={signDialogOpen} onOpenChange={setSignDialogOpen}>
@@ -824,6 +859,33 @@ export default function DocumentDetail() {
           </DialogContent>
         </Dialog>
       )}
+
+      {/* Dialog QR para verificación */}
+      <Dialog open={qrDialogOpen} onOpenChange={setQrDialogOpen}>
+        <DialogContent className="sm:max-w-sm">
+          <DialogHeader>
+            <DialogTitle>QR para verificación</DialogTitle>
+            <DialogDescription>
+              Escanea este QR para obtener la metadata firmada. Luego sube el PDF en Verificar procedencia.
+            </DialogDescription>
+          </DialogHeader>
+          {document?.signedMetadata && (
+            <div className="flex flex-col items-center gap-4 py-4">
+              <div className="bg-white p-4 rounded-lg">
+                <QRCodeSVG
+                  value={JSON.stringify({ signedMetadata: document.signedMetadata })}
+                  size={200}
+                  level="M"
+                />
+              </div>
+              <div className="text-xs text-muted-foreground text-center space-y-1">
+                <p>Incluye: contentHash, autor, fecha y firma.</p>
+                <p>El verificador debe subir el PDF además de escanear este QR.</p>
+              </div>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }

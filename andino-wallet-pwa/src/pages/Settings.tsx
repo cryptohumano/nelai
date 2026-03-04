@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -14,7 +14,7 @@ import {
   DialogTitle,
   DialogTrigger,
 } from '@/components/ui/dialog'
-import { Plus, Edit, Trash2, Save, ExternalLink, Key, Globe, Shield } from 'lucide-react'
+import { Plus, Edit, Trash2, Save, ExternalLink, Key, Globe, Shield, Bot, Check } from 'lucide-react'
 import { useNetwork } from '@/contexts/NetworkContext'
 import { useActiveAccount } from '@/contexts/ActiveAccountContext'
 import { NetworkSwitcher } from '@/components/NetworkSwitcher'
@@ -22,6 +22,15 @@ import { DkgNetworkSwitcher } from '@/components/DkgNetworkSwitcher'
 import { WebAuthnCredentialsManager } from '@/components/WebAuthnCredentialsManager'
 import { DatabaseManager } from '@/components/DatabaseManager'
 import { BackupManager } from '@/components/BackupManager'
+import {
+  getAllLLMConfigs,
+  saveLLMConfig,
+  deleteLLMConfig,
+  setActiveLLMConfig,
+  getDefaultEndpoint,
+  type LLMApiConfig,
+  type LLMProvider,
+} from '@/config/llmConfig'
 
 interface ApiConfig {
   id: string
@@ -87,6 +96,270 @@ function useApiConfigsStorage() {
     updateConfig,
     deleteConfig,
   }
+}
+
+function LLMSettingsSection() {
+  const [configs, setConfigs] = useState<LLMApiConfig[]>([])
+  const [llmDialogOpen, setLlmDialogOpen] = useState(false)
+  const [editingLlm, setEditingLlm] = useState<LLMApiConfig | null>(null)
+  const [llmForm, setLlmForm] = useState({
+    name: '',
+    provider: 'openai' as LLMProvider,
+    apiKey: '',
+    endpoint: '',
+    model: '',
+    isActive: false,
+  })
+
+  const loadConfigs = useCallback(async () => {
+    const list = await getAllLLMConfigs()
+    setConfigs(list)
+  }, [])
+
+  useEffect(() => {
+    loadConfigs()
+  }, [loadConfigs])
+
+  const handleOpenLlmDialog = (config?: LLMApiConfig) => {
+    if (config) {
+      setEditingLlm(config)
+      setLlmForm({
+        name: config.name,
+        provider: config.provider,
+        apiKey: config.apiKey,
+        endpoint: config.endpoint || getDefaultEndpoint(config.provider),
+        model: config.model || '',
+        isActive: config.isActive,
+      })
+    } else {
+      setEditingLlm(null)
+      setLlmForm({
+        name: '',
+        provider: 'openai',
+        apiKey: '',
+        endpoint: getDefaultEndpoint('openai'),
+        model: '',
+        isActive: configs.length === 0,
+      })
+    }
+    setLlmDialogOpen(true)
+  }
+
+  const handleCloseLlmDialog = () => {
+    setLlmDialogOpen(false)
+    setEditingLlm(null)
+  }
+
+  const handleSaveLlm = async (e: React.FormEvent) => {
+    e.preventDefault()
+    const apiKey = llmForm.apiKey.trim() || editingLlm?.apiKey
+    if (!llmForm.name.trim() || !apiKey) return
+
+    const cfg: LLMApiConfig = {
+      id: editingLlm?.id ?? `llm-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`,
+      provider: llmForm.provider,
+      name: llmForm.name.trim(),
+      apiKey,
+      endpoint: llmForm.endpoint.trim() || undefined,
+      model: llmForm.model.trim() || undefined,
+      isActive: llmForm.isActive,
+      createdAt: editingLlm?.createdAt ?? Date.now(),
+      updatedAt: Date.now(),
+    }
+    await saveLLMConfig(cfg)
+    if (cfg.isActive) await setActiveLLMConfig(cfg.id)
+    await loadConfigs()
+    handleCloseLlmDialog()
+  }
+
+  const handleDeleteLlm = async (id: string) => {
+    if (!confirm('¿Eliminar esta configuración de IA?')) return
+    await deleteLLMConfig(id)
+    await loadConfigs()
+  }
+
+  const handleSetActive = async (id: string) => {
+    await setActiveLLMConfig(id)
+    await loadConfigs()
+  }
+
+  const providerLabels: Record<LLMProvider, string> = {
+    openai: 'OpenAI (GPT)',
+    anthropic: 'Anthropic (Claude)',
+    gemini: 'Google Gemini',
+    custom: 'Custom',
+  }
+
+  return (
+    <Card>
+      <CardHeader>
+        <div className="flex items-center justify-between">
+          <div>
+            <CardTitle className="flex items-center gap-2">
+              <Bot className="h-5 w-5" />
+              APIs de IA (LLM)
+            </CardTitle>
+            <CardDescription>
+              Configura APIs para que el Agente Guía use IA en lugar de plantillas fijas
+            </CardDescription>
+          </div>
+          <Dialog open={llmDialogOpen} onOpenChange={setLlmDialogOpen}>
+            <DialogTrigger asChild>
+              <Button onClick={() => handleOpenLlmDialog()}>
+                <Plus className="mr-2 h-4 w-4" />
+                Agregar API
+              </Button>
+            </DialogTrigger>
+            <DialogContent className="max-w-lg">
+              <DialogHeader>
+                <DialogTitle>{editingLlm ? 'Editar API de IA' : 'Nueva API de IA'}</DialogTitle>
+                <DialogDescription>
+                  OpenAI, Anthropic o endpoint compatible. Las claves se guardan localmente.
+                </DialogDescription>
+              </DialogHeader>
+              <form onSubmit={handleSaveLlm} className="space-y-4">
+                <div className="space-y-2">
+                  <Label>Nombre *</Label>
+                  <Input
+                    value={llmForm.name}
+                    onChange={(e) => setLlmForm({ ...llmForm, name: e.target.value })}
+                    placeholder="Ej: Mi OpenAI"
+                    required
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label>Proveedor *</Label>
+                  <select
+                    className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                    value={llmForm.provider}
+                    onChange={(e) => {
+                      const p = e.target.value as LLMProvider
+                      setLlmForm({
+                        ...llmForm,
+                        provider: p,
+                        endpoint: getDefaultEndpoint(p),
+                      })
+                    }}
+                  >
+                    <option value="openai">OpenAI (GPT)</option>
+                    <option value="anthropic">Anthropic (Claude)</option>
+                    <option value="gemini">Google Gemini</option>
+                    <option value="custom">Custom</option>
+                  </select>
+                </div>
+                <div className="space-y-2">
+                  <Label>API Key {editingLlm ? '(dejar vacío para mantener)' : '*'}</Label>
+                  <Input
+                    type="password"
+                    value={llmForm.apiKey}
+                    onChange={(e) => setLlmForm({ ...llmForm, apiKey: e.target.value })}
+                    placeholder={editingLlm ? '••••••••' : 'sk-...'}
+                    required={!editingLlm}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label>Endpoint (opcional)</Label>
+                  <Input
+                    value={llmForm.endpoint}
+                    onChange={(e) => setLlmForm({ ...llmForm, endpoint: e.target.value })}
+                    placeholder={getDefaultEndpoint(llmForm.provider)}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label>Modelo (opcional)</Label>
+                  <Input
+                    value={llmForm.model}
+                    onChange={(e) => setLlmForm({ ...llmForm, model: e.target.value })}
+                    placeholder={
+                      llmForm.provider === 'openai'
+                        ? 'gpt-4o-mini'
+                        : llmForm.provider === 'gemini'
+                          ? 'gemini-2.0-flash'
+                          : 'claude-3-5-haiku-20241022'
+                    }
+                  />
+                </div>
+                <div className="flex items-center gap-2">
+                  <input
+                    type="checkbox"
+                    id="llm-active"
+                    checked={llmForm.isActive}
+                    onChange={(e) => setLlmForm({ ...llmForm, isActive: e.target.checked })}
+                    className="rounded border-gray-300"
+                  />
+                  <Label htmlFor="llm-active" className="cursor-pointer">Usar como activa</Label>
+                </div>
+                <div className="flex gap-2 justify-end">
+                  <Button type="button" variant="outline" onClick={handleCloseLlmDialog}>Cancelar</Button>
+                  <Button type="submit"><Save className="mr-2 h-4 w-4" />Guardar</Button>
+                </div>
+              </form>
+            </DialogContent>
+          </Dialog>
+        </div>
+      </CardHeader>
+      <CardContent>
+        {configs.length === 0 ? (
+          <div className="text-center py-12 text-muted-foreground">
+            <p className="mb-4">No hay APIs de IA configuradas</p>
+            <Button onClick={() => handleOpenLlmDialog()}>
+              <Plus className="mr-2 h-4 w-4" />
+              Agregar primera API
+            </Button>
+          </div>
+        ) : (
+          <div className="space-y-3">
+            {configs.map((c) => (
+              <div
+                key={c.id}
+                className="flex items-center justify-between p-4 border rounded-lg hover:bg-muted/50 transition-colors"
+              >
+                <div className="flex items-center gap-4 flex-1 min-w-0">
+                  <div className="h-10 w-10 rounded-full bg-primary/10 flex items-center justify-center flex-shrink-0">
+                    <Bot className="h-5 w-5 text-primary" />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2 mb-1">
+                      <h3 className="font-semibold truncate">{c.name}</h3>
+                      {c.isActive && (
+                        <Badge variant="default" className="gap-1">
+                          <Check className="h-3 w-3" /> Activa
+                        </Badge>
+                      )}
+                      <Badge variant="outline">{providerLabels[c.provider]}</Badge>
+                    </div>
+                    <p className="text-sm text-muted-foreground truncate">
+                      {c.endpoint || getDefaultEndpoint(c.provider)} • {c.model || 'default'}
+                    </p>
+                  </div>
+                </div>
+                <div className="flex gap-2 flex-shrink-0">
+                  {!c.isActive && (
+                    <Button variant="outline" size="sm" onClick={() => handleSetActive(c.id)}>
+                      Activar
+                    </Button>
+                  )}
+                  <Button variant="outline" size="sm" onClick={() => handleOpenLlmDialog(c)}>
+                    <Edit className="h-4 w-4" />
+                  </Button>
+                  <Button variant="outline" size="sm" onClick={() => handleDeleteLlm(c.id)}>
+                    <Trash2 className="h-4 w-4" />
+                  </Button>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+        <Alert className="mt-4">
+          <Shield className="h-4 w-4" />
+          <AlertDescription>
+            Las API keys se almacenan solo en tu dispositivo. El Agente Guía las usa para generar
+            explicaciones personalizadas antes de acciones sensibles (emergencias, publicar en DKG, etc.).
+          </AlertDescription>
+        </Alert>
+      </CardContent>
+    </Card>
+  )
 }
 
 function NetworkSwitcherInSettings() {
@@ -219,6 +492,7 @@ export default function Settings() {
         <TabsList>
           <TabsTrigger value="general">General</TabsTrigger>
           <TabsTrigger value="apis">APIs Externas</TabsTrigger>
+          <TabsTrigger value="llm">IA (LLM)</TabsTrigger>
           <TabsTrigger value="security">Seguridad</TabsTrigger>
         </TabsList>
 
@@ -406,6 +680,11 @@ export default function Settings() {
               y nunca se comparten con terceros. Asegúrate de usar conexiones HTTPS para todas las APIs.
             </AlertDescription>
           </Alert>
+        </TabsContent>
+
+        {/* IA (LLM) */}
+        <TabsContent value="llm" className="space-y-4">
+          <LLMSettingsSection />
         </TabsContent>
 
         {/* General */}

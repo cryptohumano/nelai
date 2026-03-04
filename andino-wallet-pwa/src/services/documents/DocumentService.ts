@@ -4,7 +4,7 @@
 
 import { v4 as uuidv4 } from 'uuid'
 import type { Document, DocumentType, DocumentMetadata, GPSMetadata } from '@/types/documents'
-import { saveDocument, getDocument } from '@/utils/documentStorage'
+import { saveDocument, getDocument, updateDocument } from '@/utils/documentStorage'
 import { generatePDF, generateSimplePDF, generateContractPDF } from '@/services/pdf/PDFGenerator'
 import type { PDFGenerationOptions } from '@/services/pdf/PDFGenerator'
 
@@ -51,6 +51,12 @@ export async function createDocument(options: CreateDocumentOptions): Promise<Do
     pdfSize = pdfResult.pdfSize
   }
 
+  // Extraer contentHtml si viene en pdfContent
+  const contentHtml =
+    options.pdfContent?.sections?.[0]?.content && typeof options.pdfContent.sections[0].content === 'string'
+      ? (options.pdfContent.sections[0].content as string)
+      : undefined
+
   // Crear objeto Document
   const document: Document = {
     documentId,
@@ -64,6 +70,7 @@ export async function createDocument(options: CreateDocumentOptions): Promise<Do
     encrypted: options.encrypted || false,
     metadata: {
       ...options.metadata,
+      contentHtml,
       createdAt: new Date().toISOString(),
       creator: 'Andino Wallet',
       producer: 'Andino Wallet PDF Generator',
@@ -79,6 +86,63 @@ export async function createDocument(options: CreateDocumentOptions): Promise<Do
   await saveDocument(document)
 
   return document
+}
+
+/**
+ * Actualiza un documento existente con nuevo contenido.
+ * Regenera el PDF y limpia firmas (el contenido cambió).
+ */
+export async function updateDocumentContent(
+  documentId: string,
+  options: {
+    content: string
+    metadata: Partial<DocumentMetadata>
+    relatedAccount?: string
+  }
+): Promise<Document> {
+  const existing = await getDocument(documentId)
+  if (!existing) {
+    throw new Error(`Documento ${documentId} no encontrado`)
+  }
+
+  const metadata: DocumentMetadata = {
+    ...existing.metadata,
+    ...options.metadata,
+    contentHtml: options.content,
+    modifiedAt: new Date().toISOString(),
+  }
+
+  const pdfResult = await generatePDF({
+    metadata,
+    content: {
+      title: metadata.title,
+      subtitle: metadata.description,
+      sections: [
+        {
+          title: 'Contenido',
+          content: options.content || '<p>Sin contenido</p>',
+          isTable: false,
+        },
+      ],
+    },
+  })
+
+  const updated: Document = {
+    ...existing,
+    pdf: pdfResult.pdfBase64,
+    pdfHash: pdfResult.pdfHash,
+    pdfSize: pdfResult.pdfSize,
+    metadata,
+    relatedAccount: options.relatedAccount ?? existing.relatedAccount,
+    signatures: [], // Contenido cambió, firmas anteriores ya no aplican
+    signatureStatus: undefined,
+    pendingSigners: undefined,
+    signedMetadata: undefined, // Se regenera al firmar de nuevo
+    updatedAt: Date.now(),
+  }
+
+  await updateDocument(documentId, updated)
+  return updated
 }
 
 /**

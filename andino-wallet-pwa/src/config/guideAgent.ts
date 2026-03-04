@@ -12,10 +12,9 @@ export type GuideActionType =
 export const GUIDE_AGENT_CONFIG = {
   /** Mostrar el modal de guía antes de acciones sensibles */
   enabled: true,
-  /** Tipos de acción donde se muestra */
+  /** Tipos de acción donde se muestra (emergencias excluidas: prioridad velocidad) */
   enabledActions: [
     'publish-dkg',
-    'register-emergency-onchain',
     'register-aviso-onchain',
     'sign-document',
   ] as GuideActionType[],

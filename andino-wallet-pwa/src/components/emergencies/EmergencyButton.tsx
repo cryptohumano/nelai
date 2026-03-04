@@ -437,19 +437,19 @@ export function EmergencyButton({
 
   return (
     <Dialog open={open} onOpenChange={setOpen}>
-      <DialogTrigger asChild>
-        <Button
-          variant="destructive"
-          size="lg"
-          className="w-full sm:w-auto gap-2"
-          disabled={!hasMilestones}
-          title={!hasMilestones ? 'Agrega al menos un milestone antes de activar una emergencia' : 'Activar emergencia'}
-        >
-          <AlertTriangle className="h-5 w-5" />
-          EMERGENCIA
-        </Button>
-      </DialogTrigger>
-      {dialogContent}
-    </Dialog>
+        <DialogTrigger asChild>
+          <Button
+            variant="destructive"
+            size="lg"
+            className="w-full sm:w-auto gap-2"
+            disabled={!hasMilestones}
+            title={!hasMilestones ? 'Agrega al menos un milestone antes de activar una emergencia' : 'Activar emergencia'}
+          >
+            <AlertTriangle className="h-5 w-5" />
+            EMERGENCIA
+          </Button>
+        </DialogTrigger>
+        {dialogContent}
+      </Dialog>
   )
 }

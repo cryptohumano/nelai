@@ -11,6 +11,8 @@ import { calculatePDFHash } from '@/services/pdf/PDFHash'
 import { updateDocument } from '@/utils/documentStorage'
 import { getAutographicSignature } from '@/utils/autographicSignatureStorage'
 import { addAutographicSignature } from './AutographicSigner'
+import { signEvidenceMetadata } from '@/services/nelai/evidenceSigning'
+import { embedC2paManifest } from '@/services/c2pa/c2paClient'
 
 export interface SignDocumentOptions {
   document: Document
@@ -30,14 +32,6 @@ export async function signDocumentWithSubstrate(
   if (!document.pdf) {
     throw new Error('El documento no tiene PDF para firmar')
   }
-
-  // Calcular hash SHA-256 del PDF
-  const pdfHash = await calculatePDFHash(document.pdf)
-
-  // Firmar el hash con la llave privada
-  const hashBytes = hexToUint8Array(pdfHash)
-  const signature = pair.sign(hashBytes)
-  const signatureHex = u8aToHex(signature)
 
   // Agregar metadatos X.509 al PDF con la cuenta Substrate
   let modifiedPdfBase64 = document.pdf
@@ -63,17 +57,25 @@ export async function signDocumentWithSubstrate(
     // El campo Author debe contener la dirección Substrate
     const substrateAuthor = pair.address // Dirección Substrate como autor
     const substrateInfo = `Substrate Account: ${pair.address} (${pair.type})`
-    const newSubject = existingSubject 
+    const exifData = document.metadata?.exifData as { keywordsText?: string[]; subjectText?: string } | undefined
+
+    let newSubject = existingSubject 
       ? `${existingSubject} | ${substrateInfo}`
       : substrateInfo
-    
+    if (exifData?.subjectText) {
+      newSubject += ` | ${exifData.subjectText}`
+    }
+
     // Agregar a keywords también
     const newKeywords = [
       ...(Array.isArray(existingKeywords) ? existingKeywords : []),
       `SubstrateAccount:${pair.address}`,
       `KeyType:${pair.type}`,
     ]
-    
+    if (exifData?.keywordsText?.length) {
+      newKeywords.push(...exifData.keywordsText)
+    }
+
     // Establecer metadatos actualizados
     // El Author debe ser la dirección Substrate para X.509
     if (existingTitle) pdfDoc.setTitle(existingTitle)
@@ -137,6 +139,42 @@ export async function signDocumentWithSubstrate(
     // Continuar sin la firma autográfica si hay error
   }
 
+  // Intentar embeber manifiesto C2PA ANTES de calcular hash (para que el hash sea del PDF final)
+  let pdfForSigning = modifiedPdfBase64
+  const c2paMetadata = {
+    author: pair.address,
+    createdAt: new Date().toISOString(),
+    title: document.metadata?.title,
+    documentId: document.documentId,
+    claimGenerator: 'Nelai Andino Wallet',
+    ...(document.metadata?.exifData && { exifData: document.metadata.exifData }),
+  }
+
+  try {
+    const preC2paHash = await calculatePDFHash(modifiedPdfBase64)
+    const c2paPdf = await embedC2paManifest(modifiedPdfBase64, {
+      ...c2paMetadata,
+      contentHash: preC2paHash,
+      signature: '', // Se añadirá después
+    })
+    if (c2paPdf) {
+      pdfForSigning = c2paPdf
+      const binary = atob(c2paPdf.includes(',') ? c2paPdf.split(',')[1] : c2paPdf)
+      modifiedPdfSize = new Blob([binary]).size
+      console.log('[Substrate Signer] Manifiesto C2PA embebido correctamente')
+    }
+  } catch (err) {
+    console.warn('[Substrate Signer] C2PA no disponible, continuando sin manifiesto:', err)
+  }
+
+  // Calcular hash del PDF FINAL (con C2PA si se aplicó)
+  const pdfHash = await calculatePDFHash(pdfForSigning)
+
+  // Firmar el hash con la llave privada
+  const hashBytes = hexToUint8Array(pdfHash)
+  const signature = pair.sign(hashBytes)
+  const signatureHex = u8aToHex(signature)
+
   // Crear objeto de firma con información X.509
   const documentSignature: DocumentSignature = {
     id: uuidv4(),
@@ -190,10 +228,30 @@ export async function signDocumentWithSubstrate(
     signatureStatus = 'fully_signed'
   }
 
-  // Actualizar documento con PDF modificado
+  // Generar signedMetadata compatible con VerifyProcedence (para QR)
+  let signedMetadata: Document['signedMetadata'] | undefined
+  try {
+    const dataUrl = pdfForSigning.includes(',')
+      ? pdfForSigning
+      : `data:application/pdf;base64,${pdfForSigning}`
+    const evidenceResult = await signEvidenceMetadata(dataUrl, pair.address, pair, {
+      type: 'document',
+      mimeType: 'application/pdf',
+      filename: document.metadata?.title
+        ? `${document.metadata.title.replace(/[^a-zA-Z0-9-_]/g, '_')}.pdf`
+        : `document-${document.documentId.slice(0, 8)}.pdf`,
+    })
+    signedMetadata = evidenceResult.signedMetadata
+  } catch (err) {
+    console.warn('[Substrate Signer] No se pudo generar signedMetadata para QR:', err)
+  }
+
+  // Actualizar documento con PDF modificado (con C2PA si se aplicó)
+  // pdfHash debe coincidir con el PDF final para que la verificación de integridad pase
   const updatedDocument: Document = {
     ...document,
-    pdf: modifiedPdfBase64,
+    pdf: pdfForSigning,
+    pdfHash: pdfHash,
     pdfSize: modifiedPdfSize,
     signatures: updatedSignatures,
     signatureStatus,
@@ -202,6 +260,7 @@ export async function signDocumentWithSubstrate(
           addr => !updatedSignatures.some(sig => sig.signer === addr)
         )
       : undefined,
+    signedMetadata: signedMetadata ?? document.signedMetadata,
     updatedAt: Date.now(),
   }
 

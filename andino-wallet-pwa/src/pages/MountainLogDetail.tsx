@@ -298,6 +298,10 @@ export default function MountainLogDetail() {
         authorName, // Pasar el nombre del autor
       })
 
+      // Agregar EXIF/cámara de las imágenes para Content Credentials y metadata
+      const { aggregateExifFromMountainLog } = await import('@/utils/exifAggregation')
+      const exifData = aggregateExifFromMountainLog(logWithStats)
+
       // Crear documento en el sistema de documentos (guardar primero)
       const doc = await createDocumentFromPDF({
         type: 'mountain_log',
@@ -310,6 +314,7 @@ export default function MountainLogDetail() {
           author: authorName,
           subject: 'Bitácora de Montañismo',
           keywords: ['montañismo', 'bitácora', 'expedición', logWithStats.mountainName || '', logWithStats.location || ''].filter(Boolean),
+          ...(exifData && { exifData }), // Para incrustar en Content Credentials al firmar
         },
         gpsMetadata: logWithStats.startLocation,
         relatedAccount: logWithStats.relatedAccount,
@@ -1102,6 +1107,20 @@ export default function MountainLogDetail() {
               const thumbnail = canvas.toDataURL('image/jpeg', 0.7)
               console.log('[handleImageFile] Thumbnail generado')
 
+              // Extraer EXIF de la cámara (ISO, apertura, etc.) para incrustar en PDF y Content Credentials
+              let exifData: Record<string, unknown> | undefined
+              let cameraSettings: MountainLogImage['metadata']['cameraSettings'] | undefined
+              let exifGps = gpsMetadata
+              try {
+                const { extractEXIFMetadata } = await import('@/services/pdf/PDFMetadata')
+                const exif = await extractEXIFMetadata(file)
+                if (exif.gps) exifGps = exif.gps
+                if (exif.cameraSettings) cameraSettings = exif.cameraSettings
+                if (exif.exifData && Object.keys(exif.exifData).length > 0) exifData = exif.exifData
+              } catch (err) {
+                console.warn('[handleImageFile] EXIF no extraído:', err)
+              }
+
               const image: MountainLogImage = {
                 id: uuidv4(),
                 data: dataUrl,
@@ -1113,7 +1132,9 @@ export default function MountainLogDetail() {
                   width: img.width,
                   height: img.height,
                   capturedAt: Date.now(),
-                  gpsMetadata
+                  gpsMetadata: exifGps,
+                  ...(cameraSettings && { cameraSettings }),
+                  ...(exifData && { exifData }),
                 }
               }
 
