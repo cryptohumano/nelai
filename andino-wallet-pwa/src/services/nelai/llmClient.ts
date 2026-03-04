@@ -40,6 +40,15 @@ const MAX_RETRIES = 1
 /** Contador de solicitudes por sesión (para depuración de límites) */
 let sessionRequestCount = 0
 
+/**
+ * Sanitiza un valor para usarlo en cabeceras HTTP.
+ * Las cabeceras solo aceptan ISO-8859-1; caracteres fuera de ese rango causan
+ * "Failed to read 'headers' from RequestInit: String contains non ISO-8859-1 code point".
+ */
+function sanitizeHeaderValue(value: string): string {
+  return value.replace(/[^\u0000-\u00FF]/g, '').trim()
+}
+
 async function fetchWithRetry(
   url: string,
   init: RequestInit,
@@ -129,7 +138,7 @@ async function openAIChat(
 
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
-    Authorization: `Bearer ${config.apiKey}`,
+    Authorization: `Bearer ${sanitizeHeaderValue(config.apiKey)}`,
   }
 
   try {
@@ -168,7 +177,7 @@ async function anthropicChat(
 
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
-    'x-api-key': config.apiKey,
+    'x-api-key': sanitizeHeaderValue(config.apiKey),
     'anthropic-version': '2023-06-01',
   }
 
@@ -230,7 +239,7 @@ async function geminiChat(
 
     const headers: Record<string, string> = {
       'Content-Type': 'application/json',
-      'x-goog-api-key': config.apiKey,
+      'x-goog-api-key': sanitizeHeaderValue(config.apiKey),
     }
 
     return fetchWithRetry(url, { method: 'POST', headers, body: JSON.stringify(body) })
@@ -300,7 +309,7 @@ async function geminiChatStream(
 
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
-    'x-goog-api-key': config.apiKey,
+    'x-goog-api-key': sanitizeHeaderValue(config.apiKey),
   }
 
   try {
