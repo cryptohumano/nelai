@@ -470,7 +470,8 @@ export async function generateMountainLogPDF(
               if (!image.metadata.width || !image.metadata.height) {
                 // Crear un elemento Image para obtener dimensiones
                 const img = new Image()
-                img.src = image.data
+                const srcForDimensions = image.data?.startsWith('data:') ? image.data : `data:${image.metadata.mimeType || 'image/jpeg'};base64,${image.data || ''}`
+                img.src = srcForDimensions
                 
                 // Esperar a que la imagen se cargue
                 await new Promise<void>((resolve) => {
@@ -502,10 +503,16 @@ export async function generateMountainLogPDF(
               
               // Determinar el formato de la imagen
               const imageFormat = image.metadata.mimeType?.includes('png') ? 'PNG' : 'JPEG'
+              // Asegurar data URL válida (jsPDF acepta data:image/...;base64,...)
+              let imageData = image.data
+              if (imageData && !imageData.startsWith('data:')) {
+                const mime = imageFormat === 'PNG' ? 'image/png' : 'image/jpeg'
+                imageData = `data:${mime};base64,${imageData}`
+              }
               
               // Agregar imagen al PDF
               pdf.addImage(
-                image.data,
+                imageData,
                 imageFormat,
                 margin,
                 yPosition,

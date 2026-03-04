@@ -28,6 +28,7 @@ import {
   Loader2
 } from 'lucide-react'
 import type { MountainLogImage } from '@/types/mountainLogs'
+import { getImageSrc } from '@/utils/imageUtils'
 import { publishEvidenceToDKG, getDkgConfig } from '@/services/nelai/dkgPublish'
 import { getEthereumPrivateKeyForAccount } from '@/utils/evmKeyFromAccount'
 import { useActiveAccount } from '@/contexts/ActiveAccountContext'
@@ -46,6 +47,7 @@ export function ImageGallery({ images, onDelete, onImageUpdate, canDelete = true
   const navigate = useNavigate()
   const { activeAccount } = useActiveAccount()
   const [selectedIndex, setSelectedIndex] = useState<number | null>(null)
+  const [failedSrcs, setFailedSrcs] = useState<Set<string>>(new Set())
   const [showMetadata, setShowMetadata] = useState(false)
   const [showQR, setShowQR] = useState(false)
   const [publishingDkg, setPublishingDkg] = useState(false)
@@ -130,17 +132,28 @@ export function ImageGallery({ images, onDelete, onImageUpdate, canDelete = true
     <>
       {/* Grid de imágenes */}
       <div className="grid grid-cols-3 gap-2">
-        {images.map((image, index) => (
+        {images.map((image, index) => {
+          const src = getImageSrc(image.data, image.thumbnail, image.metadata.mimeType)
+          const srcKey = src || image.id
+          const failed = failedSrcs.has(srcKey)
+          return (
           <div
             key={image.id}
             className="relative aspect-square rounded-lg overflow-hidden bg-muted cursor-pointer group"
             onClick={() => setSelectedIndex(index)}
           >
-            <img
-              src={image.thumbnail || image.data}
-              alt={image.metadata.filename}
-              className="w-full h-full object-cover transition-transform group-hover:scale-105"
-            />
+            {src && !failed ? (
+              <img
+                src={src}
+                alt={image.metadata.filename}
+                className="w-full h-full object-cover transition-transform group-hover:scale-105"
+                onError={() => setFailedSrcs((prev) => new Set(prev).add(srcKey))}
+              />
+            ) : (
+              <div className="w-full h-full flex items-center justify-center">
+                <ImageIcon className="h-8 w-8 text-muted-foreground/50" />
+              </div>
+            )}
             {image.metadata.gpsMetadata && (
               <Badge 
                 variant="secondary" 
@@ -159,11 +172,11 @@ export function ImageGallery({ images, onDelete, onImageUpdate, canDelete = true
                 {image.dkgUAL ? <Database className="h-2.5 w-2.5" /> : <ShieldCheck className="h-2.5 w-2.5" />}
               </Badge>
             )}
-            <div className="absolute inset-0 bg-black/0 group-hover:bg-black/20 transition-colors flex items-center justify-center">
+            <div className="absolute inset-0 bg-black/0 group-hover:bg-black/20 transition-colors flex items-center justify-center pointer-events-none">
               <ImageIcon className="h-6 w-6 text-white opacity-0 group-hover:opacity-100 transition-opacity" />
             </div>
           </div>
-        ))}
+        )})}
       </div>
 
       {/* Modal de imagen grande */}
@@ -176,11 +189,21 @@ export function ImageGallery({ images, onDelete, onImageUpdate, canDelete = true
             <div className="relative w-full h-full flex items-center justify-center">
               {/* Imagen principal */}
               <div className="relative w-full h-full flex items-center justify-center p-4 pb-20 sm:pb-4">
-                <img
-                  src={selectedImage.data}
-                  alt={selectedImage.metadata.filename}
-                  className="max-w-full max-h-[60vh] sm:max-h-[85vh] object-contain"
-                />
+                {(() => {
+                  const modalSrc = getImageSrc(selectedImage.data, selectedImage.thumbnail, selectedImage.metadata.mimeType)
+                  return modalSrc ? (
+                    <img
+                      src={modalSrc}
+                      alt={selectedImage.metadata.filename}
+                      className="max-w-full max-h-[60vh] sm:max-h-[85vh] object-contain"
+                    />
+                  ) : (
+                    <div className="flex flex-col items-center gap-2 text-muted-foreground">
+                      <ImageIcon className="h-16 w-16" />
+                      <p>Imagen no disponible</p>
+                    </div>
+                  )
+                })()}
               </div>
 
               {/* Botón cerrar */}

@@ -65,6 +65,21 @@ Embebe un manifiesto C2PA en un PDF.
 
 Comprueba si el servicio está disponible y los certificados cargados.
 
+### POST /api/llm-proxy
+
+**Proxy para Gemini API** — evita CORS cuando la PWA está desplegada (p. ej. GitHub Pages). La API de Google no soporta CORS desde el navegador.
+
+**Body:**
+```json
+{
+  "apiKey": "tu-api-key-de-google",
+  "model": "gemini-2.0-flash",
+  "body": { "contents": [...], "generationConfig": {...} }
+}
+```
+
+Configura en la PWA: Configuración > IA > Proxy URL = `https://tu-servidor.com/api/llm-proxy`
+
 ## Integración con la PWA
 
 La PWA llama al servidor cuando el usuario firma un documento (si está disponible). Si el servidor no está corriendo, la firma funciona igual pero sin manifiesto C2PA embebido.

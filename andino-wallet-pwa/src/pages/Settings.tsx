@@ -107,6 +107,7 @@ function LLMSettingsSection() {
     provider: 'openai' as LLMProvider,
     apiKey: '',
     endpoint: '',
+    proxyUrl: '',
     model: '',
     isActive: false,
   })
@@ -128,6 +129,7 @@ function LLMSettingsSection() {
         provider: config.provider,
         apiKey: config.apiKey,
         endpoint: config.endpoint || getDefaultEndpoint(config.provider),
+        proxyUrl: config.proxyUrl || '',
         model: config.model || '',
         isActive: config.isActive,
       })
@@ -138,6 +140,7 @@ function LLMSettingsSection() {
         provider: 'openai',
         apiKey: '',
         endpoint: getDefaultEndpoint('openai'),
+        proxyUrl: '',
         model: '',
         isActive: configs.length === 0,
       })
@@ -161,6 +164,7 @@ function LLMSettingsSection() {
       name: llmForm.name.trim(),
       apiKey,
       endpoint: llmForm.endpoint.trim() || undefined,
+      proxyUrl: llmForm.proxyUrl.trim() || undefined,
       model: llmForm.model.trim() || undefined,
       isActive: llmForm.isActive,
       createdAt: editingLlm?.createdAt ?? Date.now(),
@@ -265,6 +269,19 @@ function LLMSettingsSection() {
                     placeholder={getDefaultEndpoint(llmForm.provider)}
                   />
                 </div>
+                {llmForm.provider === 'gemini' && (
+                  <div className="space-y-2">
+                    <Label>Proxy URL (para GitHub Pages / evita CORS)</Label>
+                    <Input
+                      value={llmForm.proxyUrl}
+                      onChange={(e) => setLlmForm({ ...llmForm, proxyUrl: e.target.value })}
+                      placeholder="https://tu-servidor.com/api/llm-proxy"
+                    />
+                    <p className="text-xs text-muted-foreground">
+                      La API de Gemini no soporta CORS desde el navegador. Despliega el servidor (yarn c2pa-server) y pon aquí su URL + /api/llm-proxy
+                    </p>
+                  </div>
+                )}
                 <div className="space-y-2">
                   <Label>Modelo (opcional)</Label>
                   <Input

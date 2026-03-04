@@ -10,6 +10,8 @@ export interface LLMApiConfig {
   name: string
   apiKey: string
   endpoint?: string
+  /** URL del proxy para Gemini (evita CORS desde navegador). Ej: https://tu-servidor.com/api/llm-proxy */
+  proxyUrl?: string
   model?: string
   isActive: boolean
   createdAt: number

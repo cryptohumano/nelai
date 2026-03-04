@@ -125,6 +125,14 @@ export async function chatCompletionStream(
   callbacks: StreamCallbacks,
   options?: ChatCompletionOptions
 ): Promise<{ content: string; error?: string; truncated?: boolean }> {
+  if (config.provider === 'gemini' && config.proxyUrl) {
+    // Con proxy no hay streaming; usar chatCompletion y simular
+    const res = await chatCompletion(config, messages, options)
+    if (res.error) return res
+    callbacks.onChunk(res.content)
+    callbacks.onDone?.(res.truncated)
+    return res
+  }
   if (config.provider === 'gemini') {
     return geminiChatStream(config, messages, callbacks, options)
   }
@@ -217,27 +225,25 @@ async function geminiChat(
   options?: ChatCompletionOptions
 ): Promise<LLMResponse> {
   const useGoogleSearch = options?.googleSearch === true
+  const model = config.model || 'gemini-2.0-flash'
+  const proxyUrl = config.proxyUrl?.trim()
 
-  const doRequest = (withTools: boolean) => {
-    const baseUrl = config.endpoint?.trim() || 'https://generativelanguage.googleapis.com/v1beta'
-    const model = config.model || 'gemini-2.0-flash'
-    const url = `${baseUrl.replace(/\/$/, '')}/models/${model}:generateContent`
+  const systemMsg = messages.find((m) => m.role === 'system')
+  const chatMsgs = messages.filter((m) => m.role !== 'system')
 
-    const systemMsg = messages.find((m) => m.role === 'system')
-    const chatMsgs = messages.filter((m) => m.role !== 'system')
-
-    const contents = chatMsgs.map((m) => {
-      const parts: Array<{ text?: string; inlineData?: { mimeType: string; data: string } }> = []
-      if (m.content) parts.push({ text: m.content })
-      if (m.attachments?.length) {
-        for (const att of m.attachments) {
-          parts.push({ inlineData: { mimeType: att.mimeType, data: att.data } })
-        }
+  const contents = chatMsgs.map((m) => {
+    const parts: Array<{ text?: string; inlineData?: { mimeType: string; data: string } }> = []
+    if (m.content) parts.push({ text: m.content })
+    if (m.attachments?.length) {
+      for (const att of m.attachments) {
+        parts.push({ inlineData: { mimeType: att.mimeType, data: att.data } })
       }
-      if (parts.length === 0) parts.push({ text: '(archivo adjunto)' })
-      return { role: m.role === 'assistant' ? 'model' : 'user', parts }
-    })
+    }
+    if (parts.length === 0) parts.push({ text: '(archivo adjunto)' })
+    return { role: m.role === 'assistant' ? 'model' : 'user', parts }
+  })
 
+  const buildBody = (withTools: boolean): Record<string, unknown> => {
     const body: Record<string, unknown> = {
       contents,
       generationConfig: {
@@ -251,13 +257,30 @@ async function geminiChat(
     if (withTools) {
       body.tools = [{ google_search: {} }]
     }
+    return body
+  }
 
-    const headers: Record<string, string> = {
-      'Content-Type': 'application/json',
-      'x-goog-api-key': sanitizeHeaderValue(config.apiKey),
+  const doRequest = (withTools: boolean) => {
+    const body = buildBody(withTools)
+    if (proxyUrl) {
+      // Usar proxy para evitar CORS (la API de Gemini no soporta CORS desde navegador)
+      const url = proxyUrl.replace(/\/$/, '')
+      return fetchWithRetry(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ apiKey: config.apiKey, model, body }),
+      })
     }
-
-    return fetchWithRetry(url, { method: 'POST', headers, body: JSON.stringify(body) })
+    const baseUrl = config.endpoint?.trim() || 'https://generativelanguage.googleapis.com/v1beta'
+    const url = `${baseUrl.replace(/\/$/, '')}/models/${model}:generateContent`
+    return fetchWithRetry(url, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-goog-api-key': sanitizeHeaderValue(config.apiKey),
+      },
+      body: JSON.stringify(body),
+    })
   }
 
   try {

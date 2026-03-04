@@ -18,7 +18,7 @@ const PORT = process.env.C2PA_PORT || 3456
 
 const app = express()
 
-// CORS: permitir peticiones desde el frontend (localhost:5173 en desarrollo)
+// CORS: permitir peticiones desde el frontend (localhost, GitHub Pages, etc.)
 app.use((req, res, next) => {
   res.setHeader('Access-Control-Allow-Origin', '*')
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS')
@@ -137,8 +137,41 @@ app.get('/api/c2pa-health', (_req, res) => {
   }
 })
 
+/**
+ * Proxy para Gemini API — evita CORS en navegador.
+ * La API de Google no soporta CORS; las peticiones desde GitHub Pages fallan.
+ * Este endpoint reenvía al cliente la petición a generativelanguage.googleapis.com.
+ *
+ * POST /api/llm-proxy
+ * Body: { apiKey, model, body } — body es el JSON para generateContent
+ */
+app.post('/api/llm-proxy', async (req, res) => {
+  try {
+    const { apiKey, model, body } = req.body
+    if (!apiKey || !body) {
+      return res.status(400).json({ error: 'apiKey y body son requeridos' })
+    }
+    const m = model || 'gemini-2.0-flash'
+    const url = `https://generativelanguage.googleapis.com/v1beta/models/${m}:generateContent`
+    const proxyRes = await fetch(url, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-goog-api-key': apiKey.replace(/[^\u0000-\u00FF]/g, '').trim(),
+      },
+      body: JSON.stringify(body),
+    })
+    const text = await proxyRes.text()
+    res.status(proxyRes.status).set('Content-Type', proxyRes.headers.get('Content-Type') || 'application/json').send(text)
+  } catch (err) {
+    console.error('[LLM Proxy] Error:', err)
+    res.status(500).json({ error: err.message || 'Error en proxy' })
+  }
+})
+
 app.listen(PORT, () => {
   console.log(`[C2PA] Servidor en http://localhost:${PORT}`)
   console.log('[C2PA] POST /api/c2pa-sign - Embeber manifiesto en PDF')
+  console.log('[C2PA] POST /api/llm-proxy - Proxy Gemini (evita CORS)')
   console.log('[C2PA] GET  /api/c2pa-health - Estado del servicio')
 })
