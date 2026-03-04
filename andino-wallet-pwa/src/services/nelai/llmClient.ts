@@ -35,7 +35,11 @@ export interface StreamCallbacks {
  * Ver https://ai.google.dev/gemini-api/docs/rate-limits
  */
 const RETRY_DELAY_MS = 60_000 // 1 min para RPM
-const MAX_RETRIES = 1
+const MAX_RETRIES_429 = 1
+
+/** Reintentos para errores de red transitorios (ERR_HTTP2_PROTOCOL_ERROR, Failed to fetch) */
+const MAX_RETRIES_NETWORK = 2
+const NETWORK_RETRY_DELAY_MS = 3000
 
 /** Contador de solicitudes por sesión (para depuración de límites) */
 let sessionRequestCount = 0
@@ -52,18 +56,29 @@ function sanitizeHeaderValue(value: string): string {
 async function fetchWithRetry(
   url: string,
   init: RequestInit,
-  retries = MAX_RETRIES
+  retries429 = MAX_RETRIES_429,
+  retriesNetwork = MAX_RETRIES_NETWORK
 ): Promise<Response> {
   sessionRequestCount += 1
-  const res = await fetch(url, init)
+  let res: Response
+  try {
+    res = await fetch(url, init)
+  } catch (err) {
+    if (retriesNetwork > 0 && (err instanceof TypeError || err instanceof Error)) {
+      console.warn(`[LLM] Error de red (${err instanceof Error ? err.message : 'Failed to fetch'}). Reintentando en ${NETWORK_RETRY_DELAY_MS / 1000}s (${retriesNetwork} restantes)`)
+      await new Promise((r) => setTimeout(r, NETWORK_RETRY_DELAY_MS))
+      return fetchWithRetry(url, init, retries429, retriesNetwork - 1)
+    }
+    throw err
+  }
   console.log(`[LLM] Solicitud #${sessionRequestCount} → ${res.status} ${res.ok ? '✓' : '✗'}`)
-  if (res.status !== 429 || retries <= 0) return res
+  if (res.status !== 429 || retries429 <= 0) return res
   const retryAfter = res.headers.get('Retry-After')
   const parsed = parseInt(retryAfter || '', 10)
   const delayMs = retryAfter && !isNaN(parsed) ? Math.min(parsed * 1000, 120_000) : RETRY_DELAY_MS
-  console.warn(`[LLM] 429 Rate limit. Esperando ${delayMs / 1000}s antes de reintentar (${retries} restantes)`)
+  console.warn(`[LLM] 429 Rate limit. Esperando ${delayMs / 1000}s antes de reintentar (${retries429} restantes)`)
   await new Promise((r) => setTimeout(r, delayMs))
-  return fetchWithRetry(url, init, retries - 1)
+  return fetchWithRetry(url, init, retries429 - 1, retriesNetwork)
 }
 
 export interface ChatCompletionOptions {
