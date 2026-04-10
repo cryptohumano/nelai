@@ -139,43 +139,43 @@ export async function signDocumentWithSubstrate(
     // Continuar sin la firma autográfica si hay error
   }
 
-  // Intentar embeber manifiesto C2PA ANTES de calcular hash (para que el hash sea del PDF final)
-  let pdfForSigning = modifiedPdfBase64
-  const c2paMetadata = {
-    author: pair.address,
-    createdAt: new Date().toISOString(),
-    title: document.metadata?.title,
-    documentId: document.documentId,
-    claimGenerator: 'Nelai Andino Wallet',
-    ...(document.metadata?.exifData && { exifData: document.metadata.exifData }),
-  }
+  // --- FLUJO CORRECTO DE FIRMA + C2PA ---
+  // 1. Calcular el hash del PDF en su estado FINAL (sin C2PA aún)
+  //    Esto es lo que el verificador externo (tercero) contrasta con el archivo original.
+  const pdfHash = await calculatePDFHash(modifiedPdfBase64)
 
+  // 2. Firmar ese hash con la llave privada Polkadot
+  const hashBytes = hexToUint8Array(pdfHash)
+  const signature = pair.sign(hashBytes)
+  const signatureHex = u8aToHex(signature)
+
+  // 3. Embeber C2PA con el hash Y la firma ya calculados.
+  //    C2PA guardará internamente el hash del PDF PRE-manifiesto (modifiedPdfBase64),
+  //    que es exactamente lo que verifica al leer el archivo descargado por terceros.
+  let pdfForSigning = modifiedPdfBase64
   try {
-    const preC2paHash = await calculatePDFHash(modifiedPdfBase64)
-    const c2paPdf = await embedC2paManifest(modifiedPdfBase64, {
-      ...c2paMetadata,
-      contentHash: preC2paHash,
-      signature: '', // Se añadirá después
-    })
+    const c2paMetadata = {
+      author: pair.address,
+      createdAt: new Date().toISOString(),
+      title: document.metadata?.title,
+      documentId: document.documentId,
+      claimGenerator: 'Nelai Andino Wallet',
+      contentHash: pdfHash,  // hash del PDF original (sin manifiesto C2PA)
+      signature: signatureHex,  // firma Polkadot del hash
+      ...(document.metadata?.exifData && { exifData: document.metadata.exifData }),
+    }
+    const c2paPdf = await embedC2paManifest(modifiedPdfBase64, c2paMetadata)
     if (c2paPdf) {
       pdfForSigning = c2paPdf
       const binary = atob(c2paPdf.includes(',') ? c2paPdf.split(',')[1] : c2paPdf)
       modifiedPdfSize = new Blob([binary]).size
-      console.log('[Substrate Signer] Manifiesto C2PA embebido correctamente')
+      console.log('[Substrate Signer] ✅ C2PA embebido con hash y firma Polkadot')
     }
   } catch (err) {
     console.warn('[Substrate Signer] C2PA no disponible, continuando sin manifiesto:', err)
   }
 
-  // Calcular hash del PDF FINAL (con C2PA si se aplicó)
-  const pdfHash = await calculatePDFHash(pdfForSigning)
-
-  // Firmar el hash con la llave privada
-  const hashBytes = hexToUint8Array(pdfHash)
-  const signature = pair.sign(hashBytes)
-  const signatureHex = u8aToHex(signature)
-
-  // Crear objeto de firma con información X.509
+  // Crear objeto de firma
   const documentSignature: DocumentSignature = {
     id: uuidv4(),
     type: 'substrate',
