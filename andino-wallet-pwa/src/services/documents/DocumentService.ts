@@ -91,6 +91,7 @@ export async function createDocument(options: CreateDocumentOptions): Promise<Do
 /**
  * Actualiza un documento existente con nuevo contenido.
  * Regenera el PDF y limpia firmas (el contenido cambió).
+ * Guarda una versión en el historial si se solicita.
  */
 export async function updateDocumentContent(
   documentId: string,
@@ -98,6 +99,10 @@ export async function updateDocumentContent(
     content: string
     metadata: Partial<DocumentMetadata>
     relatedAccount?: string
+    chatHistory?: any[]
+    appliedMods?: Record<string, number>
+    changeDescription?: string        // Descripción para el historial (ej: "Sugerencia de IA aplicada")
+    saveVersion?: boolean             // Si se debe guardar este cambio en el historial
   }
 ): Promise<Document> {
   const existing = await getDocument(documentId)
@@ -127,13 +132,30 @@ export async function updateDocumentContent(
     },
   })
 
+  // Gestionar historial de versiones
+  const versions = existing.versions || []
+  if (options.saveVersion) {
+    versions.push({
+      version: versions.length + 1,
+      pdfHash: pdfResult.pdfHash,
+      pdf: pdfResult.pdfBase64,
+      contentHtml: options.content,
+      title: metadata.title,
+      createdAt: Date.now(),
+      changes: options.changeDescription || 'Actualización de contenido',
+    })
+  }
+
   const updated: Document = {
     ...existing,
     pdf: pdfResult.pdfBase64,
     pdfHash: pdfResult.pdfHash,
     pdfSize: pdfResult.pdfSize,
     metadata,
+    versions: versions.length > 0 ? versions : undefined,
     relatedAccount: options.relatedAccount ?? existing.relatedAccount,
+    chatHistory: options.chatHistory ?? existing.chatHistory,
+    appliedMods: options.appliedMods ?? existing.appliedMods,
     signatures: [], // Contenido cambió, firmas anteriores ya no aplican
     signatureStatus: undefined,
     pendingSigners: undefined,

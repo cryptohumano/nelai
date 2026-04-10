@@ -20,6 +20,8 @@ import { toast } from 'sonner'
 
 export interface EditorApi {
   insertAtCursor: (text: string) => void
+  replaceText: (original: string, replacement: string) => boolean
+  getContent: () => string
 }
 
 export interface RichTextEditorProps {
@@ -54,21 +56,56 @@ export default function RichTextEditor({
     if (!mounted || !editorApiRef) return
     const tryAttach = () => {
       if (!quillRef.current) return false
-      const q = quillRef.current.getEditor()
-      editorApiRef.current = {
-        insertAtCursor: (text: string) => {
-          const editor = quillRef.current?.getEditor()
-          if (!editor) return
-          const range = editor.getSelection(true)
-          if (range) {
-            editor.insertText(range.index, text, 'user')
-            editor.setSelection(range.index + text.length)
-          } else {
-            editor.insertText(editor.getLength(), text, 'user')
+      try {
+        // react-quill-new puede lanzar error si se llama a getEditor() muy pronto
+        const editor = quillRef.current.getEditor()
+        if (!editor) return false
+
+        const flashHighlight = (q: any, index: number, length: number) => {
+          // Aplicar fondo amarillo temporal
+          q.formatText(index, length, { background: '#ffff0033' }, 'user')
+          setTimeout(() => {
+            q.formatText(index, length, { background: false }, 'user')
+          }, 2500)
+        }
+
+        editorApiRef.current = {
+          insertAtCursor: (text: string) => {
+            const q = quillRef.current?.getEditor()
+            if (!q) return
+            const range = q.getSelection(true)
+            if (range) {
+              q.insertText(range.index, text, 'user')
+              flashHighlight(q, range.index, text.length)
+              q.setSelection(range.index + text.length)
+            } else {
+              const pos = q.getLength() - 1
+              q.insertText(pos, text, 'user')
+              flashHighlight(q, pos, text.length)
+            }
+          },
+          replaceText: (original: string, replacement: string) => {
+            const q = quillRef.current?.getEditor()
+            if (!q) return false
+            const text = q.getText()
+            const index = text.indexOf(original)
+            if (index === -1) return false
+            
+            q.deleteText(index, original.length)
+            q.insertText(index, replacement, 'user')
+            flashHighlight(q, index, replacement.length)
+            return true
+          },
+          getContent: () => {
+            const q = quillRef.current?.getEditor()
+            return q?.root?.innerHTML || ''
           }
-        },
+        }
+        return true
+      } catch (err) {
+        // El editor aún no está listo, intentaremos de nuevo en el próximo tick
+        return false
       }
-      return true
     }
     if (tryAttach()) return () => { editorApiRef.current = null }
     const id = setTimeout(() => {

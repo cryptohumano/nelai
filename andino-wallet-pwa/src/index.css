@@ -268,6 +268,13 @@ button[class*="bg-muted"],
   isolation: isolate;
 }
 
+/* Ocultar FAB de navegación cuando el asistente de IA está abierto */
+body.agent-open .fab-navigation {
+  display: none !important;
+  pointer-events: none !important;
+  opacity: 0 !important;
+}
+
 /* Estado dim para FABs cuando hay expansión */
 .fab-dim {
   transition: opacity 0.3s ease, transform 0.3s ease;

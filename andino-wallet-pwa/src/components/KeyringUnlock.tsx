@@ -1,10 +1,11 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { useKeyringContext } from '@/contexts/KeyringContext'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
-import { Lock, Unlock, AlertCircle, Fingerprint } from 'lucide-react'
+import { Lock, Unlock, AlertCircle, Fingerprint, User } from 'lucide-react'
 import { getAllWebAuthnCredentials } from '@/utils/webauthnStorage'
+import { getAllEncryptedAccounts, type EncryptedAccount } from '@/utils/secureStorage'
 import type { WebAuthnCredential } from '@/utils/webauthn'
 
 export function KeyringUnlock() {
@@ -13,30 +14,27 @@ export function KeyringUnlock() {
   const [error, setError] = useState<string | null>(null)
   const [isLoading, setIsLoading] = useState(false)
   const [webauthnCredentials, setWebauthnCredentials] = useState<WebAuthnCredential[]>([])
+  const [storedAccounts, setStoredAccounts] = useState<EncryptedAccount[]>([])
   const [isWebAuthnLoading, setIsWebAuthnLoading] = useState(false)
 
-  // Cargar credenciales al montar el componente
-  useEffect(() => {
-    loadWebAuthnCredentials()
-  }, [])
-  
-  // También cargar cuando cambie el estado del contexto
-  useEffect(() => {
-    if (hasWebAuthnCredentials) {
-      loadWebAuthnCredentials()
-    }
-  }, [hasWebAuthnCredentials])
-
-  const loadWebAuthnCredentials = async () => {
+  const loadMetadata = useCallback(async () => {
     try {
-      const creds = await getAllWebAuthnCredentials()
-      console.log('[KeyringUnlock] Credenciales WebAuthn cargadas:', creds.length)
+      const [creds, stored] = await Promise.all([
+        getAllWebAuthnCredentials(),
+        getAllEncryptedAccounts()
+      ])
       setWebauthnCredentials(creds)
+      setStoredAccounts(stored)
     } catch (err) {
-      console.error('[KeyringUnlock] Error al cargar credenciales WebAuthn:', err)
-      setWebauthnCredentials([])
+      console.error('[KeyringUnlock] Error al cargar metadatos:', err)
     }
-  }
+  }, [])
+
+  useEffect(() => {
+    if (isReady) {
+      loadMetadata()
+    }
+  }, [loadMetadata, isReady, isUnlocked])
 
   const handleWebAuthnUnlock = async (credentialId: string) => {
     setIsWebAuthnLoading(true)
@@ -232,40 +230,60 @@ export function KeyringUnlock() {
             e.preventDefault()
             handleUnlock()
           }}
-          className="space-y-2"
+          className="space-y-4"
         >
-          <div className="text-sm font-medium text-muted-foreground">
-            {webauthnCredentials.length > 0 ? 'Contraseña' : 'Desbloquear con Contraseña'}
+          <div className="space-y-2">
+            <div className="flex items-center justify-between">
+              <label htmlFor="password" className="text-sm font-medium text-muted-foreground">
+                {webauthnCredentials.length > 0 ? 'Contraseña' : 'Desbloquear con Contraseña'}
+              </label>
+              {hasStoredAccounts && storedAccounts.length > 0 && (
+                <span className="text-xs text-muted-foreground bg-muted px-2 py-0.5 rounded-full flex items-center gap-1">
+                  <User className="h-3 w-3" />
+                  {storedAccounts[0].meta.name || 'Cuenta Principal'}
+                  {storedAccounts.length > 1 && ` (+${storedAccounts.length - 1})`}
+                </span>
+              )}
+            </div>
+
+            {/* Hidden username to satisfy accessibility and password managers */}
+            <input 
+              type="text" 
+              name="username" 
+              autoComplete="username" 
+              defaultValue="wallet-user" 
+              className="sr-only" 
+              tabIndex={-1}
+            />
+
+            <Input
+              id="password"
+              name="password"
+              type="password"
+              placeholder="Ingresa tu contraseña"
+              value={password}
+              onChange={(e) => {
+                setPassword(e.target.value)
+                setError(null)
+              }}
+              disabled={isLoading || isWebAuthnLoading}
+              autoComplete="current-password"
+            />
           </div>
-          <Input
-            type="password"
-            placeholder="Contraseña"
-            value={password}
-            onChange={(e) => {
-              setPassword(e.target.value)
-              setError(null)
-            }}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter') {
-                e.preventDefault()
-                handleUnlock()
-              }
-            }}
-            disabled={isLoading || isWebAuthnLoading}
-            autoComplete="current-password"
-          />
+
           {error && (
-            <div className="flex items-center gap-2 text-sm text-destructive">
+            <div className="flex items-center gap-2 text-sm text-destructive bg-destructive/10 p-2 rounded">
               <AlertCircle className="h-4 w-4" />
               {error}
             </div>
           )}
+
           <Button 
             type="submit"
             disabled={isLoading || isWebAuthnLoading || !password.trim()} 
             className="w-full"
           >
-            {isLoading ? 'Desbloqueando...' : 'Desbloquear con Contraseña'}
+            {isLoading ? 'Desbloqueando...' : 'Desbloquear'}
           </Button>
         </form>
 

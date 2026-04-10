@@ -41,13 +41,17 @@ const MAX_RETRIES_429 = 1
 const MAX_RETRIES_NETWORK = 2
 const NETWORK_RETRY_DELAY_MS = 3000
 
+import { v4 as uuidv4 } from 'uuid'
+
+
 /** Contador de solicitudes por sesión (para depuración de límites) */
 let sessionRequestCount = 0
 
+/** Bloqueo global si recibimos 429 para evitar spam */
+let globalCooldownUntil = 0
+
 /**
  * Sanitiza un valor para usarlo en cabeceras HTTP.
- * Las cabeceras solo aceptan ISO-8859-1; caracteres fuera de ese rango causan
- * "Failed to read 'headers' from RequestInit: String contains non ISO-8859-1 code point".
  */
 function sanitizeHeaderValue(value: string): string {
   return value.replace(/[^\u0000-\u00FF]/g, '').trim()
@@ -59,24 +63,52 @@ async function fetchWithRetry(
   retries429 = MAX_RETRIES_429,
   retriesNetwork = MAX_RETRIES_NETWORK
 ): Promise<Response> {
+  // Obtener o generar el ID de rastreo
+  const headers = new Headers(init.headers)
+  let requestId = headers.get('X-Request-ID')
+  
+  if (!requestId) {
+    requestId = uuidv4()
+    headers.set('X-Request-ID', requestId)
+    init.headers = headers
+  }
+
+  const now = Date.now()
+  if (now < globalCooldownUntil) {
+    const waitSecs = Math.ceil((globalCooldownUntil - now) / 1000)
+    console.warn(`[LLM] [${requestId}] Solicitud bloqueada por enfriamiento (espera ${waitSecs}s)`)
+    return new Response(JSON.stringify({ error: `Demasiadas solicitudes. Reintentando en ${waitSecs}s...` }), {
+      status: 429,
+      statusText: 'Too Many Requests (Local Cooldown)',
+      headers: { 'Content-Type': 'application/json' }
+    })
+  }
+
   sessionRequestCount += 1
   let res: Response
   try {
     res = await fetch(url, init)
   } catch (err) {
     if (retriesNetwork > 0 && (err instanceof TypeError || err instanceof Error)) {
-      console.warn(`[LLM] Error de red (${err instanceof Error ? err.message : 'Failed to fetch'}). Reintentando en ${NETWORK_RETRY_DELAY_MS / 1000}s (${retriesNetwork} restantes)`)
+      console.warn(`[LLM] [${requestId}] Error de red (${err instanceof Error ? err.message : 'Failed to fetch'}). Reintentando en ${NETWORK_RETRY_DELAY_MS / 1000}s (${retriesNetwork} restantes)`)
       await new Promise((r) => setTimeout(r, NETWORK_RETRY_DELAY_MS))
       return fetchWithRetry(url, init, retries429, retriesNetwork - 1)
     }
     throw err
   }
-  console.log(`[LLM] Solicitud #${sessionRequestCount} → ${res.status} ${res.ok ? '✓' : '✗'}`)
+  
+  console.log(`[LLM] [${requestId}] Solicitud #${sessionRequestCount} → ${res.status} ${res.ok ? '✓' : '✗'} (${url.slice(0, 80)}${url.length > 80 ? '...' : ''})`)
+
+  if (res.status === 429) {
+    // Si es 429, activamos enfriamiento global de 60s
+    globalCooldownUntil = Date.now() + 60_000
+  }
+
   if (res.status !== 429 || retries429 <= 0) return res
   const retryAfter = res.headers.get('Retry-After')
   const parsed = parseInt(retryAfter || '', 10)
   const delayMs = retryAfter && !isNaN(parsed) ? Math.min(parsed * 1000, 120_000) : RETRY_DELAY_MS
-  console.warn(`[LLM] 429 Rate limit. Esperando ${delayMs / 1000}s antes de reintentar (${retries429} restantes)`)
+  console.warn(`[LLM] [${requestId}] 429 Rate limit. Esperando ${delayMs / 1000}s antes de reintentar (${retries429} restantes)`)
   await new Promise((r) => setTimeout(r, delayMs))
   return fetchWithRetry(url, init, retries429 - 1, retriesNetwork)
 }
@@ -95,8 +127,11 @@ export interface ChatCompletionOptions {
 export async function chatCompletion(
   config: LLMApiConfig,
   messages: ChatMessage[],
-  options?: ChatCompletionOptions
+  options: ChatCompletionOptions = {}
 ): Promise<LLMResponse> {
+  const requestId = uuidv4()
+  console.log(`[LLM] [${requestId}] 🚀 chatCompletion: ${config.provider}/${config.model} (${messages.length} msgs)`)
+
   const hasAttachments = messages.some((m) => m.attachments?.length)
   if (hasAttachments && config.provider !== 'gemini') {
     return {
@@ -105,14 +140,23 @@ export async function chatCompletion(
     }
   }
 
-  console.log('[LLM] chatCompletion', config.provider, config.model, 'msgs:', messages.length)
-  if (config.provider === 'anthropic') {
-    return anthropicChat(config, messages, options)
+  try {
+    let result: LLMResponse
+    if (config.provider === 'anthropic') {
+      result = await anthropicChat(config, messages, options)
+    } else if (config.provider === 'gemini') {
+      // Pass requestId to geminiChat
+      result = await geminiChat(config, messages, options, requestId)
+    } else {
+      result = await openAIChat(config, messages, options)
+    }
+
+    console.log(`[LLM] [${requestId}] ✅ Respuesta recibida satisfactoriamente`)
+    return result
+  } catch (error: any) {
+    console.error(`[LLM] [${requestId}] ❌ Error en chatCompletion:`, error)
+    throw error
   }
-  if (config.provider === 'gemini') {
-    return geminiChat(config, messages, options)
-  }
-  return openAIChat(config, messages, options)
 }
 
 /**
@@ -219,14 +263,29 @@ async function anthropicChat(
   }
 }
 
+function sanitizeModelName(model: string): string {
+  const m = model.toLowerCase().trim()
+  // No existe Gemini 3 (aún), esto evita errores de configuración comunes
+  if (m.startsWith('gemini-3')) {
+    console.warn(`[LLM] Corrigiendo modelo inválido '${model}' a 'gemini-2.0-flash'`)
+    return 'gemini-2.0-flash'
+  }
+  return model
+}
+
 async function geminiChat(
   config: LLMApiConfig,
   messages: ChatMessage[],
-  options?: ChatCompletionOptions
+  options?: ChatCompletionOptions,
+  requestId?: string
 ): Promise<LLMResponse> {
   const useGoogleSearch = options?.googleSearch === true
-  const model = config.model || 'gemini-2.0-flash'
+  const model = sanitizeModelName(config.model || 'gemini-2.0-flash')
   const proxyUrl = config.proxyUrl?.trim()
+  
+  if (requestId) {
+    console.debug(`[LLM] [${requestId}] Procesando solicitud Gemini vía ${proxyUrl ? 'Proxy' : 'Directo'}`)
+  }
 
   const systemMsg = messages.find((m) => m.role === 'system')
   const chatMsgs = messages.filter((m) => m.role !== 'system')
@@ -267,7 +326,10 @@ async function geminiChat(
       const url = proxyUrl.replace(/\/$/, '')
       return fetchWithRetry(url, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 
+          'Content-Type': 'application/json',
+          'X-Request-ID': requestId || ''
+        },
         body: JSON.stringify({ apiKey: config.apiKey, model, body }),
       })
     }

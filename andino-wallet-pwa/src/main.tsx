@@ -5,7 +5,7 @@ globalThis.Buffer = Buffer
 
 // Polyfill para crypto.randomUUID si no está disponible
 if (typeof crypto !== 'undefined' && !crypto.randomUUID) {
-  crypto.randomUUID = function() {
+  ;(crypto as any).randomUUID = function() {
     return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
       const r = (Math.random() * 16) | 0
       const v = c === 'x' ? r : (r & 0x3) | 0x8

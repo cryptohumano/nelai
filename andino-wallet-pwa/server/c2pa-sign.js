@@ -22,7 +22,8 @@ const app = express()
 app.use((req, res, next) => {
   res.setHeader('Access-Control-Allow-Origin', '*')
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS')
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type')
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, X-Request-ID, x-request-id, Authorization')
+  res.setHeader('Access-Control-Expose-Headers', 'X-Request-ID, x-request-id')
   if (req.method === 'OPTIONS') return res.sendStatus(204)
   next()
 })
@@ -115,7 +116,7 @@ app.post('/api/c2pa-sign', async (req, res) => {
 
     const builder = createBuilder(metadata || {})
     const s = getSigner()
-    const result = builder.sign(s, inputAsset, outputAsset)
+    const result = await builder.sign(s, inputAsset, outputAsset)
 
     const signedBase64 = result.toString('base64')
     res.json({ pdfBase64: signedBase64, success: true })
@@ -137,6 +138,8 @@ app.get('/api/c2pa-health', (_req, res) => {
   }
 })
 
+let llmRequestCount = 0;
+
 /**
  * Proxy para Gemini API — evita CORS en navegador.
  * La API de Google no soporta CORS; las peticiones desde GitHub Pages fallan.
@@ -146,28 +149,93 @@ app.get('/api/c2pa-health', (_req, res) => {
  * Body: { apiKey, model, body } — body es el JSON para generateContent
  */
 app.post('/api/llm-proxy', async (req, res) => {
+  llmRequestCount++;
+  const requestId = req.header('X-Request-ID') || 'internal-' + Date.now();
+  const { apiKey, model, body } = req.body;
+  const timestamp = new Date().toLocaleTimeString();
+  
+  // Incluimos el ID en la respuesta para trazabilidad completa
+  res.setHeader('X-Request-ID', requestId);
+  res.setHeader('X-LLM-Total-Requests', llmRequestCount.toString());
+
+  if (!apiKey) {
+    return res.status(400).json({ error: 'API Key es requerida' });
+  }
+
+  const targetModel = model || 'gemini-2.0-flash';
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/${targetModel}:generateContent?key=${apiKey}`;
+
+  console.log(`[${timestamp}] [LLM Proxy] [#${llmRequestCount}] [${requestId}] Petición para: ${targetModel}`);
+
   try {
-    const { apiKey, model, body } = req.body
-    if (!apiKey || !body) {
-      return res.status(400).json({ error: 'apiKey y body son requeridos' })
-    }
-    const m = model || 'gemini-2.0-flash'
-    const url = `https://generativelanguage.googleapis.com/v1beta/models/${m}:generateContent`
-    const proxyRes = await fetch(url, {
+    const response = await fetch(url, {
       method: 'POST',
       headers: {
-        'Content-Type': 'application/json',
-        'x-goog-api-key': apiKey.replace(/[^\u0000-\u00FF]/g, '').trim(),
+        'Content-Type': 'application/json'
       },
-      body: JSON.stringify(body),
-    })
-    const text = await proxyRes.text()
-    res.status(proxyRes.status).set('Content-Type', proxyRes.headers.get('Content-Type') || 'application/json').send(text)
-  } catch (err) {
-    console.error('[LLM Proxy] Error:', err)
-    res.status(500).json({ error: err.message || 'Error en proxy' })
+      body: JSON.stringify(body)
+    });
+
+    const data = await response.json();
+
+    if (!response.ok) {
+      console.error(`[${timestamp}] [LLM Proxy] Error de Google (${response.status}):`, JSON.stringify(data));
+      
+      if (response.status === 429) {
+        return res.status(429).json({ 
+          error: 'Cuota de IA agotada en Google Cloud. Por favor espera un minuto o usa una API Key con mayor nivel de facturación (Tier).',
+          details: data
+        });
+      }
+      
+      return res.status(response.status).json(data);
+    }
+
+    console.log(`[${timestamp}] [LLM Proxy] ✓ Respuesta exitosa de Google`);
+    res.json(data);
+  } catch (error) {
+    console.error(`[${timestamp}] [LLM Proxy] Error de conexión:`, error);
+    res.status(500).json({ error: 'Error interno en el proxy de Nelai' });
   }
-})
+});
+
+/**
+ * Lista los modelos disponibles en Google AI Studio para la API Key proporcionada.
+ * GET /api/llm-models?key=TU_API_KEY
+ */
+app.get('/api/llm-models', async (req, res) => {
+  const apiKey = req.query.key;
+  if (!apiKey) {
+    return res.status(400).json({ error: 'API Key es requerida como query parameter (?key=...)' });
+  }
+
+  const url = `https://generativelanguage.googleapis.com/v1beta/models?key=${apiKey}`;
+  
+  try {
+    const response = await fetch(url);
+    const data = await response.json();
+    
+    if (!response.ok) {
+      return res.status(response.status).json(data);
+    }
+    
+    // Filtrar solo los que soportan generateContent para que sea más legible
+    const chatModels = data.models?.filter(m => m.supportedGenerationMethods?.includes('generateContent')) || [];
+    
+    res.json({
+      total: data.models?.length || 0,
+      chatModelsCount: chatModels.length,
+      chatModels: chatModels.map(m => ({
+        name: m.name.replace('models/', ''),
+        displayName: m.displayName,
+        description: m.description,
+        inputTokenLimit: m.inputTokenLimit
+      }))
+    });
+  } catch (error) {
+    res.status(500).json({ error: 'Error al consultar modelos' });
+  }
+});
 
 app.listen(PORT, () => {
   console.log(`[C2PA] Servidor en http://localhost:${PORT}`)

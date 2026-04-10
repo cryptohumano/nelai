@@ -63,8 +63,10 @@ export interface DocumentVersion {
   version: number
   pdfHash: string
   pdf?: string
+  contentHtml?: string                // Contenido editable
+  title?: string                      // Título en ese momento
   createdAt: number
-  changes?: string                    // Descripción de cambios
+  changes?: string                    // Descripción de cambios (ej: "Sugerencia de IA aplicada")
 }
 
 export interface EncryptionMetadata {
@@ -171,6 +173,15 @@ export interface Document {
   // Timestamps
   createdAt: number                     // Timestamp de creación
   updatedAt: number                     // Última actualización
+
+  // Chat/AI History
+  chatHistory?: Array<{
+    role: 'user' | 'assistant'
+    content: string
+    timestamp: number
+    attachments?: Array<{ mimeType: string; data: string; fileName: string }>
+  }>
+  appliedMods?: Record<string, number>    // Mapeo de mods aplicadas [msgIndex-modIndex]: timestamp
 }
 
 export interface ExternalAPIConfig {

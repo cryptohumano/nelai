@@ -42,6 +42,19 @@ export function getGuideContent(ctx: GuideContext): GuideResult {
 
 const GUIDE_PROMPT_SYSTEM = `Eres un asistente de Nelai que explica de forma breve y clara qué datos serán públicos o privados antes de que el usuario realice una acción sensible. Responde en español, en tono informativo y conciso. Usa formato markdown simple (negritas con **). Máximo 3-4 párrafos.`
 
+// Caché simple para evitar llamadas redundantes en la misma sesión
+const guideCache = new Map<string, GuideResult>()
+
+function getCacheKey(ctx: GuideContext): string {
+  return JSON.stringify({
+    a: ctx.actionType,
+    f: ctx.fieldsToPublish,
+    g: ctx.hasGeolocation,
+    p: ctx.hasPersonalData,
+    s: ctx.payloadSummary,
+  })
+}
+
 function buildGuidePrompt(ctx: GuideContext): string {
   const template = GUIDE_TEMPLATES[ctx.actionType]
   const base = template ? template.content : 'Acción sensible con implicaciones de privacidad.'
@@ -59,6 +72,12 @@ function buildGuidePrompt(ctx: GuideContext): string {
  * Si no hay config o falla, devuelve las plantillas locales.
  */
 export async function getGuideContentWithLLM(ctx: GuideContext): Promise<GuideResult> {
+  const cacheKey = getCacheKey(ctx)
+  if (guideCache.has(cacheKey)) {
+    console.log('[GuideAgent] Usando respuesta cacheada para:', ctx.actionType)
+    return guideCache.get(cacheKey)!
+  }
+
   const config = await getActiveLLMConfig()
   if (!config?.apiKey) {
     return getGuideContent(ctx)
@@ -77,9 +96,12 @@ export async function getGuideContentWithLLM(ctx: GuideContext): Promise<GuideRe
     return getGuideContent(ctx)
   }
 
-  return {
+  const result: GuideResult = {
     title,
     content: res.content.trim(),
     sections: undefined,
   }
+
+  guideCache.set(cacheKey, result)
+  return result
 }

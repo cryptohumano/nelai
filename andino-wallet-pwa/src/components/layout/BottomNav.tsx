@@ -40,7 +40,7 @@ export function BottomNav() {
       {/* FAB Button - Posicionado a la derecha (navegación) */}
       <div
         className={cn(
-          "fixed bottom-4 right-4 md:hidden z-[100] pointer-events-auto fab-navigation fab-dim"
+          "fixed bottom-4 right-4 md:hidden z-30 pointer-events-auto fab-navigation fab-dim"
         )}
         style={{
           bottom: 'max(1rem, env(safe-area-inset-bottom, 1rem))',

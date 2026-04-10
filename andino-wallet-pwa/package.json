@@ -58,6 +58,7 @@
     "cmdk": "^1.1.1",
     "date-fns": "^4.1.0",
     "dedot": "^1.0.2",
+    "diff": "^8.0.4",
     "embla-carousel-react": "^8.6.0",
     "exif-js": "^2.3.0",
     "express": "^5.2.1",
@@ -94,6 +95,7 @@
   },
   "devDependencies": {
     "@tailwindcss/vite": "^4.0.0",
+    "@types/diff": "^8.0.0",
     "@types/express": "^5",
     "@types/node": "^22.10.2",
     "@types/prop-types": "^15",
