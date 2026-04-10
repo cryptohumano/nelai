@@ -1,52 +1,69 @@
-# Nelai
+# Aura Wallet x Nelai AI 🚀
+### SoftServe AgentX Hackathon 2026 Entry
 
-Capa de **agentes de explicación y verificación** + **firma criptográfica de metadata** sobre [Andino Wallet PWA](https://github.com/cryptohumano/andino-wallet-pwa), para el **iSAFE Hackathon 2026 — Track 2: Defend the Digital Citizen**.
+> **Language Note:** While this documentation is in English, the **Nelai AI Agent** currently operates and communicates in **Spanish**.
 
----
-
-## Qué es esto
-
-- **Andino Wallet** ya ofrece: identidad Polkadot, bitácoras de montaña, emergencias on-chain, documentos firmados, PWA offline.
-- **Nelai** añade:
-  1. **Metadata firmada** para todo documento/archivo (qué se registró, quién, cuándo, integridad).
-  2. **Agente Guía:** explica al usuario qué datos van on-chain / off-chain, riesgos de privacidad y verificabilidad antes de registrar.
-  3. **Agente Verificador:** analiza metadata (y opcionalmente UAL de OriginTrail DKG) de contenido que te envían y devuelve un reporte claro.
-
-Objetivo: que el ciudadano digital entienda y pueda **verificar** el origen e integridad de la información, alineado con [iSAFE](https://www.cyberchallenge.net/) y con trazabilidad vía [OriginTrail DKG](https://docs.origintrail.io/).
+**Aura Wallet** is a generalized Digital Identity project. For this hackathon, we present an advanced implementation using the **Andino Wallet** technical infrastructure, chosen for its maturity in security, offline capabilities, and blockchain signatures.
 
 ---
 
-## Estructura del repo
+## 🤖 Nelai AI: The R&D Agentic Engine
+Nelai is an **R&D workspace** designed for technical knowledge generation and the co-creation of **technically valid legal contracts**.
+
+### 🛠️ Agentic Vision & LegalTech (Hackathon Focus)
+- **Non-Repudiation Documents**: Content verification is achieved by signing payloads with **Substrate (Polkadot) signatures** and unique hashes, verifiable via QR codes.
+- **Dual Identity (User + Agent)**: We envision a future where both users and Agents (Nelai) possess executive powers based on verifiable credentials and delegated authority.
+- **Content Credentials & Origin Trail**: Future integration with **Origin Trail (Decentralized Knowledge Graphs - dKG)** to anchor journalistic and scientific content on-chain for long-term verifiability.
+- **Legal Compliance Pipeline**: We are researching the transformation of the agent into a daily assistant for lawyers, including a future **Reliability Score (Legal Compliance)** for pre-signing evaluation.
+- **Hybrid & Privacy-First Architecture**: Our "true backend" is the **Polkadot blockchain**. The Node.js server is minimal to ensure **User Privacy**, keeping sensitive data local. This serves as a **DIY framework** for individual or enterprise scaling (e.g., via n8n or OpenClaw).
+
+---
+
+## 🏔️ Base Infrastructure: Andino Wallet
+We leverage Andino as the "transport layer" and "security host" for Nelai, using its *offline-first* and mobile-first architecture to make digital identity accessible anywhere.
+
+---
+
+## 📂 Repository Structure
 
 ```
 nelai/
-├── README.md                 # Este archivo
-├── PLAN.md                   # Plan maestro: contexto, visión, arquitectura, roadmap
-├── andino-wallet-pwa/        # Clone del repo base (listo para integrar Nelai)
-└── docs/
-    ├── SCHEMA_METADATA_FIRMA.md   # Esquema de metadata y flujo de firma/verificación
-    ├── AGENTES_IMPLEMENTACION.md  # Cómo implementar Guía y Verificador (MVP + LLM)
-    ├── INTEGRACION_ANDINO_ORIGINTRAIL.md  # Andino + DKG
-    ├── SCOPE_NELAI_QUE_SALVAR.md  # Análisis: qué conservar/adaptar/diferir del scope estratégico
-    ├── REVISION_RAMA_ASYNC_LOGBOOK.md  # Revisión de la rama feature/async-logbook y encaje con Nelai
-    ├── PROXIMOS_PASOS.md  # Orden de implementación: firma metadata → Verificador → DKG → Guía → API Keys
-    ├── NELAI_SIN_BLOCKCHAIN_Y_PERSISTENCIA.md  # Cripto, agentes y persistencia sin chain; offline, centralizado, descentralizado; redes sociales
-    ├── CONTENT_CREDENTIALS_C2PA_VINCULACION.md  # Content Credentials/C2PA como estándar base + Polkadot; diseño dual y roadmap
-    ├── ESTRATEGIA_GENERALIZACION_NELAI.md  # Nombres genéricos vs dominio (bitácoras, documentos); UI genérica; agente para crear/firmar documentos
-    └── FLUJO_USUARIO_Y_CODIGO_NELAI.md  # Flujo de usuario (evidencias en bitácora) y zonas de código en Andino para Paso 1
+├── README.md                 # This file (Master Overview)
+├── andino-wallet-pwa/        # Main application (PWA + Nelai Agent)
+│   ├── src/                  # React + TypeScript source code
+│   ├── README.md             # PWA specific documentation
+│   └── package.json          # Dependencies (Vite 7, Dedot, etc.)
+└── docs/                     # Technical specifications and roadmap
 ```
 
-**Andino** está clonado en `andino-wallet-pwa/` desde la rama **`feature/async-logbook`** ([origen](https://github.com/cryptohumano/andino-wallet-pwa/tree/feature/async-logbook)). Tras revisar el código, el documento **SCOPE_NELAI_QUE_SALVAR.md** resume qué salvar del scope hecho con otro agente (KILT, C2PA, Aura, etc.) y qué alinear con lo que Andino ya tiene.
+---
+
+## 📦 Getting Started
+
+```bash
+# Navigate to the app directory
+cd andino-wallet-pwa
+
+# Install dependencies
+yarn install
+
+# Start the environment
+yarn dev:all
+```
 
 ---
 
-## Referencias
+## 🇪🇸 Versión en Español
 
-- [iSAFE Hackathon 2026](https://www.cyberchallenge.net/) — Track 2
-- [Andino Wallet PWA](https://github.com/cryptohumano/andino-wallet-pwa)
-- [OriginTrail Docs](https://docs.origintrail.io/)
-- [DKG JS Client (dkg.js)](https://docs.origintrail.io/dkg-v6-current-version/dkg-sdk/dkg-v6-js-client)
+**Aura Wallet** es un proyecto de **Identidad Digital Generalizada**. Presentamos una implementación avanzada usando la estructura de **Andino Wallet**.
+
+### 🤖 Nelai AI: El Motor Agéntico R&D
+- **Documentos con No-Repudio**: Verificación mediante **firmas Substrate (Polkadot)** y hashes (QR).
+- **Origin Trail**: Soporte futuro para **dKG** en contenido verificable.
+- **Identidad Dual (User + Agent)**: Facultades ejecutivas delegadas.
+- **Privacidad y Backend Minimalista**: El backend real es la **blockchain de Polkadot**. Privacidad local del usuario garantizada.
 
 ---
 
-*Sesión de vibecoding — plan listo para pasar a implementación.*
+## 📝 License
+MIT
