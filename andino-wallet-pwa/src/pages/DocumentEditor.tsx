@@ -2,7 +2,7 @@
  * Página para editar documentos antes de generar PDF
  */
 
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, useCallback } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -34,6 +34,7 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog'
 import { useDocumentEditorLayout } from '@/contexts/DocumentEditorLayoutContext'
+import { cn } from '@/lib/utils'
 
 export default function DocumentEditor() {
   const { documentId } = useParams<{ documentId: string }>()
@@ -58,6 +59,13 @@ export default function DocumentEditor() {
   const [historyModalOpen, setHistoryModalOpen] = useState(false)
   const [agentOpen, setAgentOpen] = useState(false)
   const [chatHistory, setChatHistory] = useState<any[]>([])
+  /** Se incrementa al cargar el documento para hidratar el chat del agente desde IndexedDB */
+  const [chatSessionKey, setChatSessionKey] = useState(0)
+  const chatHistoryRef = useRef<any[]>([])
+
+  useEffect(() => {
+    chatHistoryRef.current = chatHistory
+  }, [chatHistory])
   const [versions, setVersions] = useState<any[]>([])
   const [appliedMods, setAppliedMods] = useState<Record<string, number>>({})
   const [previewVersion, setPreviewVersion] = useState<any | null>(null)
@@ -67,15 +75,32 @@ export default function DocumentEditor() {
   const editorApiRef = useRef<EditorApi | null>(null)
 
   useEffect(() => {
-    if (documentId && chatHistory.length > 0) {
-      // Auto-guardado silencioso del historial en cada cambio
-      getDocument(documentId).then(doc => {
-        if (doc) {
-          updateDocument(documentId, { ...doc, chatHistory, updatedAt: Date.now() })
-        }
-      })
-    }
+    if (!documentId) return
+    // Persistir historial del chat (incluso vacío) en IndexedDB
+    getDocument(documentId).then((doc) => {
+      if (doc) {
+        updateDocument(documentId, { ...doc, chatHistory, updatedAt: Date.now() })
+      }
+    })
   }, [chatHistory, documentId])
+
+  const flushChatToStorage = useCallback(() => {
+    if (!documentId) return
+    const latest = chatHistoryRef.current
+    getDocument(documentId).then((doc) => {
+      if (doc) {
+        updateDocument(documentId, { ...doc, chatHistory: latest, updatedAt: Date.now() })
+      }
+    })
+  }, [documentId])
+
+  const handleAgentOpenChange = useCallback(
+    (open: boolean) => {
+      setAgentOpen(open)
+      if (!open) flushChatToStorage()
+    },
+    [flushChatToStorage]
+  )
 
   useEffect(() => {
     if (documentId) {
@@ -110,6 +135,7 @@ export default function DocumentEditor() {
       setSavedContent(initialContent)
       setEncrypt(doc.encrypted || false)
       setChatHistory(doc.chatHistory || [])
+      setChatSessionKey((k) => k + 1)
       setAppliedMods(doc.appliedMods || {})
       setVersions(doc.versions || [])
     } catch (error) {
@@ -379,12 +405,18 @@ export default function DocumentEditor() {
           )}
         </div>
 
-        {/* El Agente se mostrará como un Sidebar REAL a la derecha */}
-        {agentOpen && (
-          <aside className="w-full lg:w-[500px] border-l bg-background flex flex-col shadow-2xl animate-in slide-in-from-right duration-300 z-40 shrink-0">
+        {/* Agente: siempre montado para conservar el hilo al cerrar el panel; oculto cuando no está abierto */}
+        <aside
+          className={cn(
+            'w-full lg:w-[500px] border-l bg-background flex-col shadow-2xl z-40 shrink-0',
+            agentOpen ? 'flex animate-in slide-in-from-right duration-300' : 'hidden'
+          )}
+        >
             <DocumentEditorAgent
               open={agentOpen}
-              onOpenChange={setAgentOpen}
+              onOpenChange={handleAgentOpenChange}
+              documentId={documentId}
+              chatSessionKey={chatSessionKey}
               initialMessages={chatHistory}
               appliedMods={appliedMods}
               onAppliedModsChange={setAppliedMods}
@@ -426,8 +458,7 @@ export default function DocumentEditor() {
                 }
               }}
             />
-          </aside>
-        )}
+        </aside>
       </div>
     </div>
 

@@ -61,7 +61,8 @@ async function fetchWithRetry(
   url: string,
   init: RequestInit,
   retries429 = MAX_RETRIES_429,
-  retriesNetwork = MAX_RETRIES_NETWORK
+  retriesNetwork = MAX_RETRIES_NETWORK,
+  isRetry = false
 ): Promise<Response> {
   // Obtener o generar el ID de rastreo
   const headers = new Headers(init.headers)
@@ -74,7 +75,8 @@ async function fetchWithRetry(
   }
 
   const now = Date.now()
-  if (now < globalCooldownUntil) {
+  // No bloquear si es un reintento (ya esperamos el delay)
+  if (!isRetry && now < globalCooldownUntil) {
     const waitSecs = Math.ceil((globalCooldownUntil - now) / 1000)
     console.warn(`[LLM] [${requestId}] Solicitud bloqueada por enfriamiento (espera ${waitSecs}s)`)
     return new Response(JSON.stringify({ error: `Demasiadas solicitudes. Reintentando en ${waitSecs}s...` }), {
@@ -92,7 +94,7 @@ async function fetchWithRetry(
     if (retriesNetwork > 0 && (err instanceof TypeError || err instanceof Error)) {
       console.warn(`[LLM] [${requestId}] Error de red (${err instanceof Error ? err.message : 'Failed to fetch'}). Reintentando en ${NETWORK_RETRY_DELAY_MS / 1000}s (${retriesNetwork} restantes)`)
       await new Promise((r) => setTimeout(r, NETWORK_RETRY_DELAY_MS))
-      return fetchWithRetry(url, init, retries429, retriesNetwork - 1)
+      return fetchWithRetry(url, init, retries429, retriesNetwork - 1, true)
     }
     throw err
   }
@@ -107,10 +109,11 @@ async function fetchWithRetry(
   if (res.status !== 429 || retries429 <= 0) return res
   const retryAfter = res.headers.get('Retry-After')
   const parsed = parseInt(retryAfter || '', 10)
+  // Gemini suele pedir 60s para RPM. Si no hay Retry-After, usamos el default.
   const delayMs = retryAfter && !isNaN(parsed) ? Math.min(parsed * 1000, 120_000) : RETRY_DELAY_MS
   console.warn(`[LLM] [${requestId}] 429 Rate limit. Esperando ${delayMs / 1000}s antes de reintentar (${retries429} restantes)`)
   await new Promise((r) => setTimeout(r, delayMs))
-  return fetchWithRetry(url, init, retries429 - 1, retriesNetwork)
+  return fetchWithRetry(url, init, retries429 - 1, retriesNetwork, true)
 }
 
 export interface ChatCompletionOptions {
@@ -199,7 +202,7 @@ async function openAIChat(
   const body = {
     model: config.model || 'gpt-4o-mini',
     messages,
-    max_tokens: options?.maxTokens ?? 500,
+    max_tokens: options?.maxTokens ?? 2048,
     temperature: options?.temperature ?? 0.7,
   }
 
@@ -236,7 +239,7 @@ async function anthropicChat(
 
   const body: Record<string, unknown> = {
     model: config.model || 'claude-3-5-haiku-20241022',
-    max_tokens: options?.maxTokens ?? 500,
+    max_tokens: options?.maxTokens ?? 2048,
     messages: chatMsgs.map((m) => ({ role: m.role, content: m.content })),
   }
   if (systemMsg) body.system = systemMsg.content
@@ -264,13 +267,8 @@ async function anthropicChat(
 }
 
 function sanitizeModelName(model: string): string {
-  const m = model.toLowerCase().trim()
-  // No existe Gemini 3 (aún), esto evita errores de configuración comunes
-  if (m.startsWith('gemini-3')) {
-    console.warn(`[LLM] Corrigiendo modelo inválido '${model}' a 'gemini-2.0-flash'`)
-    return 'gemini-2.0-flash'
-  }
-  return model
+  // Ya no corregimos gemini-3 porque es una versión válida de frontera
+  return model.toLowerCase().trim()
 }
 
 async function geminiChat(
@@ -306,7 +304,7 @@ async function geminiChat(
     const body: Record<string, unknown> = {
       contents,
       generationConfig: {
-        maxOutputTokens: options?.maxTokens ?? 500,
+        maxOutputTokens: options?.maxTokens ?? 2048,
         temperature: options?.temperature ?? 0.7,
       },
     }
@@ -348,15 +346,21 @@ async function geminiChat(
   try {
     let res = useGoogleSearch ? await doRequest(true) : await doRequest(false)
 
-    // Si falló con google_search (400, 403, etc.), reintentar sin tools
-    if (!res.ok && useGoogleSearch) {
-      console.warn('[LLM] Google Search no disponible, usando modo estándar')
+    // Si falló con google_search (400, 403, etc.), reintentar sin tools.
+    // IMPORTANTE: Si es 429 (Rate Limit) o 401 (Auth), NO reintentar, ya que fallará igual
+    // y solo consumirá más cuota o activará más enfriamientos.
+    if (!res.ok && useGoogleSearch && res.status !== 429 && res.status !== 401) {
+      console.warn(`[LLM] [${requestId || 'gen'}] Google Search no disponible (status ${res.status}), usando modo estándar`)
       res = await doRequest(false)
     }
 
     if (!res.ok) {
       const text = await res.text()
-      return { content: '', error: `API error ${res.status}: ${text.slice(0, 200)}` }
+      const errorMsg = `API error ${res.status}: ${text.slice(0, 200)}`
+      if (requestId) {
+        console.error(`[LLM] [${requestId}] ${errorMsg}`)
+      }
+      return { content: '', error: errorMsg }
     }
 
     const data = (await res.json()) as {
@@ -370,7 +374,7 @@ async function geminiChat(
     const truncated = candidate?.finishReason === 'MAX_TOKENS'
     return text ? { content: text, truncated } : { content: '', error: 'Formato de respuesta no reconocido' }
   } catch (err) {
-    console.error('[LLM] Error:', err)
+    console.error('[LLM] Error en geminiChat:', err)
     return { content: '', error: err instanceof Error ? err.message : 'Error de conexión' }
   }
 }

@@ -138,15 +138,8 @@ app.get('/api/c2pa-health', (_req, res) => {
   }
 })
 
-let llmRequestCount = 0;
-
 /**
  * Proxy para Gemini API — evita CORS en navegador.
- * La API de Google no soporta CORS; las peticiones desde GitHub Pages fallan.
- * Este endpoint reenvía al cliente la petición a generativelanguage.googleapis.com.
- *
- * POST /api/llm-proxy
- * Body: { apiKey, model, body } — body es el JSON para generateContent
  */
 app.post('/api/llm-proxy', async (req, res) => {
   llmRequestCount++;
@@ -154,50 +147,51 @@ app.post('/api/llm-proxy', async (req, res) => {
   const { apiKey, model, body } = req.body;
   const timestamp = new Date().toLocaleTimeString();
   
-  // Incluimos el ID en la respuesta para trazabilidad completa
   res.setHeader('X-Request-ID', requestId);
   res.setHeader('X-LLM-Total-Requests', llmRequestCount.toString());
 
   if (!apiKey) {
+    console.error(`[${timestamp}] [LLM Proxy] [${requestId}] Error: Falta API Key`);
     return res.status(400).json({ error: 'API Key es requerida' });
   }
 
   const targetModel = model || 'gemini-2.0-flash';
   const url = `https://generativelanguage.googleapis.com/v1beta/models/${targetModel}:generateContent?key=${apiKey}`;
 
-  console.log(`[${timestamp}] [LLM Proxy] [#${llmRequestCount}] [${requestId}] Petición para: ${targetModel}`);
+  console.log(`[${timestamp}] [LLM Proxy] [#${llmRequestCount}] [${requestId}] 🚀 Forwarding to Google: ${targetModel}`);
 
   try {
     const response = await fetch(url, {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json'
-      },
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body)
     });
 
     const data = await response.json();
 
     if (!response.ok) {
-      console.error(`[${timestamp}] [LLM Proxy] Error de Google (${response.status}):`, JSON.stringify(data));
+      console.error(`[${timestamp}] [LLM Proxy] [${requestId}] ❌ Google Error (${response.status})`);
       
       if (response.status === 429) {
         return res.status(429).json({ 
-          error: 'Cuota de IA agotada en Google Cloud. Por favor espera un minuto o usa una API Key con mayor nivel de facturación (Tier).',
+          error: 'Cuota de IA agotada en Google Cloud. Por favor espera 60s.',
           details: data
         });
       }
-      
       return res.status(response.status).json(data);
     }
 
-    console.log(`[${timestamp}] [LLM Proxy] ✓ Respuesta exitosa de Google`);
+    console.log(`[${timestamp}] [LLM Proxy] [${requestId}] ✅ Success`);
     res.json(data);
   } catch (error) {
-    console.error(`[${timestamp}] [LLM Proxy] Error de conexión:`, error);
+    console.error(`[${timestamp}] [LLM Proxy] [${requestId}] 🔥 Connection Error:`, error.message);
     res.status(500).json({ error: 'Error interno en el proxy de Nelai' });
   }
 });
+
+// Alias para evitar 404 si hay barras invertidas o inconsistencias
+app.post('/api/llm-proxy/', (req, res) => res.redirect(307, '/api/llm-proxy'));
+app.get('/api/llm-proxy-health', (req, res) => res.json({ status: 'ok', requests: llmRequestCount }));
 
 /**
  * Lista los modelos disponibles en Google AI Studio para la API Key proporcionada.
